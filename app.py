@@ -4,6 +4,7 @@ import datetime
 import pandas as pd
 import requests
 import io
+import re
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 
@@ -175,7 +176,7 @@ tab_stock, tab_venta, tab_pedidos, tab_historial, tab_finanzas, tab_clientes, ta
 ])
 
 # ----------------------------------------------------
-# 1. INVENTARIO (CON ELIMINACIÓN DE STOCK INCLUIDA)
+# 1. INVENTARIO
 # ----------------------------------------------------
 with tab_stock:
     res_all_stock = supabase.table("inventario").select("*").in_("estado", ["Disponible", "Reservado"]).execute()
@@ -250,10 +251,9 @@ with tab_stock:
         df_v = df_all if mod_sel == "Mostrar Todo" else df_all[df_all["modelo"] == mod_sel]
         
         if es_admin:
-            st.dataframe(df_v[["id", "modelo", "color", "condicion", "bateria", "imei", "estado", "costo_total", "precio_minorista"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_v[["id", "modelo", "color", "condicion", "bateria", "imei", "estado", "costo_total", "precio_super_mayorista", "precio_minorista"]], use_container_width=True, hide_index=True)
             
-            st.markdown("### ✏️ Panel de Gestión de Ficha (Editar / Eliminar)")
-            id_ed = st.selectbox("Seleccionar ID del equipo en stock para gestionar:", df_v["id"].tolist())
+            id_ed = st.selectbox("Seleccionar ID para corregir:", df_v["id"].tolist())
             if id_ed:
                 eq = df_v[df_v["id"] == id_ed].iloc[0]
                 ed_c1, ed_c2 = st.columns(2)
@@ -265,7 +265,7 @@ with tab_stock:
                 
                 b_ed1, b_ed2 = st.columns(2)
                 with b_ed1:
-                    if st.button("💾 Guardar Cambios Individuales", use_container_width=True):
+                    if st.button("💾 Guardar Ficha Individual", use_container_width=True):
                         supabase.table("inventario").update({
                             "modelo": str(ed_mod), "color": str(ed_col), "imei": str(ed_imei), 
                             "precio_minorista": float(ed_p_mino), "precio_super_mayorista": float(ed_p_super)
@@ -273,7 +273,6 @@ with tab_stock:
                         st.success("Sincronizado.")
                         st.rerun()
                 with b_ed2:
-                    # --- ELIMINAR DISPOSITIVO DEL STOCK ---
                     if st.button("🗑️ ELIMINAR CELULAR DEL STOCK PERMANENTEMENTE", type="primary", use_container_width=True):
                         supabase.table("inventario").delete().eq("id", int(id_ed)).execute()
                         st.success("Equipo eliminado de las bases de datos.")
@@ -285,7 +284,7 @@ with tab_stock:
     else: st.warning("Sin stock disponible.")
 
 # ----------------------------------------------------
-# 2. OPERACIONES (VENTAS Y PEDIDOS)
+# 2. OPERACIONES (VENTAS Y PEDIDOS CON FORMATO DE IMEI)
 # ----------------------------------------------------
 with tab_venta:
     st.header("🤝 Cerrar Operación en Mostrador")
@@ -343,7 +342,8 @@ with tab_venta:
                 if st.button("📦 RESERVAR (CREAR PEDIDO)", type="secondary", use_container_width=True):
                     if cliente_final and sel_vendedor:
                         ids_lote = [int(e['id']) for e in eq_lote]
-                        nombres_lote = ", ".join([f"{e['modelo']} {e.get('color','')}" for e in eq_lote])
+                        # TRUCO: Inyectamos el IMEI con formato claro en la libreta de pedidos
+                        nombres_lote = ", ".join([f"{e['modelo']} {e.get('color','')} [IMEI: {e['imei']}]" for e in eq_lote])
                         
                         for eq_id in ids_lote:
                             supabase.table("inventario").update({"estado": "Reservado"}).eq("id", eq_id).execute()
@@ -374,9 +374,12 @@ with tab_venta:
                                 "precio_minorista": float(val_canje+150), "estado": "Disponible", "origen": "Canje"
                             }).execute()
                         
+                        # TRUCO: Inyectamos el IMEI con formato claro en la venta directa
+                        str_vendido = ", ".join([f"{e['modelo']} {e.get('color','')} [IMEI: {e['imei']}]" for e in eq_lote])
+                        
                         supabase.table("ventas").insert({
                             "cliente_nombre": str(cliente_final), "vendedor_nombre": str(sel_vendedor), 
-                            "equipo_vendido": str(", ".join([f"{e['modelo']} {e.get('color','')}" for e in eq_lote])),
+                            "equipo_vendido": str(str_vendido),
                             "precio_final_venta": float(sub_mino - desc_total), "descuento_aplicado": float(desc_total), 
                             "equipo_recibido_canje": str(canje_mod) if hay_canje else "Ninguno", "cotizacion_canje": float(val_canje), 
                             "monto_abonado": float(total_op), "comision_vendedor": float(comision), 
@@ -387,7 +390,7 @@ with tab_venta:
                         st.rerun()
 
 # ----------------------------------------------------
-# 3. GESTIÓN DE PEDIDOS ACTIVOS (CON OPCIÓN DE ANULACIÓN)
+# 3. GESTIÓN DE PEDIDOS ACTIVOS
 # ----------------------------------------------------
 with tab_pedidos:
     st.header("📋 Panel de Pedidos y Reservas Pendientes")
@@ -398,7 +401,7 @@ with tab_pedidos:
         
         df_p_show = df_p[["id", "fecha_pedido", "cliente_nombre", "equipos_reservados", "total_pedido", "vendedor_nombre"]].copy()
         df_p_show["total_pedido"] = df_p_show["total_pedido"].apply(formato_dolares)
-        df_p_show.columns = ["N° Pedido", "Fecha Reserva", "Cliente", "iPhones Reservados", "Total Efectivo a Cobrar", "Vendedor"]
+        df_p_show.columns = ["N° Pedido", "Fecha Reserva", "Cliente", "iPhones Reservados y Lista de IMEIs", "Total Efectivo a Cobrar", "Vendedor"]
         st.dataframe(df_p_show, use_container_width=True, hide_index=True)
         
         st.markdown("---")
@@ -454,25 +457,22 @@ with tab_pedidos:
                         "comision_pagada": False, "equipo_recibido_canje": str(c_mod), "cotizacion_canje": c_val, "canje_imei": str(c_imei), "canje_bateria": str(c_bat),
                         "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(p_sel["total_pedido"])}] if float(p_sel["total_pedido"]) > 0 else []
                     }).execute()
-                    st.success("🎉 ¡Pedido facturado!")
+                    
+                    st.success(f"🎉 ¡Pedido N° {id_p_facturar} despachado con éxito!")
                     st.rerun()
 
             with col_b3:
-                # --- ANULAR PEDIDO ACTIVO (LIBERA STOCK) ---
                 if st.button("❌ ANULAR Y CANCELAR PEDIDO", use_container_width=True):
-                    # 1. Regresamos los iPhones a "Disponible"
                     for eq_id in p_sel["ids_equipos"]:
                         supabase.table("inventario").update({"estado": "Disponible"}).eq("id", int(eq_id)).execute()
-                    
-                    # 2. Eliminamos el pedido pendiente de la nube
                     supabase.table("pedidos").delete().eq("id", int(id_p_facturar)).execute()
-                    st.success(f"Pedido N° {id_p_facturar} anulado. Los celulares volvieron al mostrador como 'Disponibles'.")
+                    st.success(f"Pedido N° {id_p_facturar} anulado. Los celulares volvieron al mostrador.")
                     st.rerun()
     else:
         st.success("✨ No hay ningún pedido pendiente reteniendo stock. Todo el local está libre.")
 
 # ----------------------------------------------------
-# 4. HISTORIAL DE VENTAS CON PANEL DE ANULACIÓN
+# 4. HISTORIAL DE VENTAS CON REINTEGRO DE STOCK MEJORADO
 # ----------------------------------------------------
 with tab_historial:
     st.header("📜 Historial de Ventas")
@@ -482,6 +482,7 @@ with tab_historial:
         df_v_show = df_v[["id", "fecha_venta", "equipo_vendido", "precio_final_venta", "monto_abonado", "cliente_nombre", "vendedor_nombre"]].copy()
         df_v_show["precio_final_venta"] = df_v_show["precio_final_venta"].apply(formato_dolares)
         df_v_show["monto_abonado"] = df_v_show["monto_abonado"].apply(formato_dolares)
+        df_v_show.columns = ["ID Venta", "Fecha", "Equipos Vendidos e IMEIs", "Precio Venta", "Monto Abonado", "Cliente", "Vendedor"]
         st.dataframe(df_v_show, use_container_width=True, hide_index=True)
 
         # --- ANULAR Y ELIMINAR VENTA DEL HISTORIAL ---
@@ -491,7 +492,19 @@ with tab_historial:
             st.write("Si eliminas una venta, se borrará su registro de caja y comisiones de forma definitiva.")
             id_venta_borrar = st.selectbox("Seleccioná el ID de la venta que deseas anular y borrar:", df_v["id"].tolist(), key="sel_id_v_del")
             
+            # --- NUEVA FUNCIÓN INTERACTIVA DE REINTEGRO ---
+            reintegrar_stock = st.checkbox("🔄 Reintegrar automáticamente los iPhones de esta venta de vuelta al Inventario (cambiar a Disponible)", value=True, key="reintegrar_stock")
+            
             if st.button("🗑️ ANULAR Y ELIMINAR VENTA PERMANENTEMENTE", type="primary", use_container_width=True):
+                v_sel = df_v[df_v["id"] == id_venta_borrar].iloc[0]
+                
+                if reintegrar_stock:
+                    # Buscamos mediante una expresión regular todo lo que esté entre [IMEI: y ]
+                    lista_imeis = re.findall(r"\[IMEI:\s*([^\]]+)\]", str(v_sel["equipo_vendido"]))
+                    if lista_imeis:
+                        supabase.table("inventario").update({"estado": "Disponible"}).in_("imei", lista_imeis).execute()
+                        st.info(f"Se reingresaron {len(lista_imeis)} equipos al mostrador.")
+                
                 supabase.table("ventas").delete().eq("id", int(id_venta_borrar)).execute()
                 st.success(f"Venta #{id_venta_borrar} anulada y eliminada del historial con éxito.")
                 st.rerun()
@@ -538,7 +551,7 @@ with tab_clientes:
         
         c_cob1, c_cob2 = st.columns(2)
         with c_cob1:
-            st.subheader("✏️ Ficha del Cliente")
+            st.subheader("✏ Carver Ficha")
             st.info("Para editar la información de un cliente, realícelo desde su panel central.")
         with c_cob2:
             st.subheader("💸 Cargar Cobro")
