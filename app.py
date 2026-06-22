@@ -253,7 +253,8 @@ with tab_stock:
         if es_admin:
             st.dataframe(df_v[["id", "modelo", "color", "condicion", "bateria", "imei", "estado", "costo_total", "precio_super_mayorista", "precio_minorista"]], use_container_width=True, hide_index=True)
             
-            id_ed = st.selectbox("Seleccionar ID para corregir:", df_v["id"].tolist())
+            st.markdown("### ✏️ Panel de Gestión de Ficha (Editar / Eliminar)")
+            id_ed = st.selectbox("Seleccionar ID del equipo en stock para gestionar:", df_v["id"].tolist())
             if id_ed:
                 eq = df_v[df_v["id"] == id_ed].iloc[0]
                 ed_c1, ed_c2 = st.columns(2)
@@ -265,7 +266,7 @@ with tab_stock:
                 
                 b_ed1, b_ed2 = st.columns(2)
                 with b_ed1:
-                    if st.button("💾 Guardar Ficha Individual", use_container_width=True):
+                    if st.button("💾 Guardar Cambios Individuales", use_container_width=True):
                         supabase.table("inventario").update({
                             "modelo": str(ed_mod), "color": str(ed_col), "imei": str(ed_imei), 
                             "precio_minorista": float(ed_p_mino), "precio_super_mayorista": float(ed_p_super)
@@ -284,7 +285,7 @@ with tab_stock:
     else: st.warning("Sin stock disponible.")
 
 # ----------------------------------------------------
-# 2. OPERACIONES (VENTAS Y PEDIDOS CON FORMATO DE IMEI)
+# 2. OPERACIONES (VENTAS Y PEDIDOS)
 # ----------------------------------------------------
 with tab_venta:
     st.header("🤝 Cerrar Operación en Mostrador")
@@ -342,7 +343,6 @@ with tab_venta:
                 if st.button("📦 RESERVAR (CREAR PEDIDO)", type="secondary", use_container_width=True):
                     if cliente_final and sel_vendedor:
                         ids_lote = [int(e['id']) for e in eq_lote]
-                        # TRUCO: Inyectamos el IMEI con formato claro en la libreta de pedidos
                         nombres_lote = ", ".join([f"{e['modelo']} {e.get('color','')} [IMEI: {e['imei']}]" for e in eq_lote])
                         
                         for eq_id in ids_lote:
@@ -374,7 +374,6 @@ with tab_venta:
                                 "precio_minorista": float(val_canje+150), "estado": "Disponible", "origen": "Canje"
                             }).execute()
                         
-                        # TRUCO: Inyectamos el IMEI con formato claro en la venta directa
                         str_vendido = ", ".join([f"{e['modelo']} {e.get('color','')} [IMEI: {e['imei']}]" for e in eq_lote])
                         
                         supabase.table("ventas").insert({
@@ -492,14 +491,12 @@ with tab_historial:
             st.write("Si eliminas una venta, se borrará su registro de caja y comisiones de forma definitiva.")
             id_venta_borrar = st.selectbox("Seleccioná el ID de la venta que deseas anular y borrar:", df_v["id"].tolist(), key="sel_id_v_del")
             
-            # --- NUEVA FUNCIÓN INTERACTIVA DE REINTEGRO ---
             reintegrar_stock = st.checkbox("🔄 Reintegrar automáticamente los iPhones de esta venta de vuelta al Inventario (cambiar a Disponible)", value=True, key="reintegrar_stock")
             
             if st.button("🗑️ ANULAR Y ELIMINAR VENTA PERMANENTEMENTE", type="primary", use_container_width=True):
                 v_sel = df_v[df_v["id"] == id_venta_borrar].iloc[0]
                 
                 if reintegrar_stock:
-                    # Buscamos mediante una expresión regular todo lo que esté entre [IMEI: y ]
                     lista_imeis = re.findall(r"\[IMEI:\s*([^\]]+)\]", str(v_sel["equipo_vendido"]))
                     if lista_imeis:
                         supabase.table("inventario").update({"estado": "Disponible"}).in_("imei", lista_imeis).execute()
@@ -511,7 +508,7 @@ with tab_historial:
     else: st.info("Sin registros.")
 
 # ----------------------------------------------------
-# 5. FINANZAS Y COMISIONES
+# 5. FINANZAS Y COMISIONES (ADMIN)
 # ----------------------------------------------------
 with tab_finanzas:
     if es_admin:
@@ -523,8 +520,10 @@ with tab_finanzas:
         res_f = supabase.table("ventas").select("*").gte("fecha_venta", str(f_d)).lte("fecha_venta", str(f_h)).execute()
         if res_f.data:
             df_f = pd.DataFrame(res_f.data)
-            st.metric("Ganancia Neta Pura del Local", formato_dolares(df_f["ganancia_neta_local"].sum()))
+            df_f["comision_pagada"] = df_f["comision_pagada"].fillna(False)
+            st.metric("Ganancia Neta Pura del Local (en este período)", formato_dolares(df_f["ganancia_neta_local"].sum()))
             
+            st.markdown("---")
             st.subheader("🧑‍💼 Comisiones Pendientes")
             df_pendientes = df_f[df_f["comision_pagada"] == False]
             if not df_pendientes.empty:
@@ -537,40 +536,90 @@ with tab_finanzas:
                     for idx in ids: supabase.table("ventas").update({"comision_pagada": True, "fecha_pago_comision": str(datetime.date.today())}).eq("id", int(idx)).execute()
                     st.success("Pagado.")
                     st.rerun()
+            else: st.success("Todas las comisiones están pagadas.")
+            
+            st.markdown("---")
+            st.subheader("📚 Historial de Comisiones Pagadas")
+            df_pagadas = df_f[df_f["comision_pagada"] == True]
+            if not df_pagadas.empty:
+                df_hist_comis = df_pagadas[["fecha_pago_comision", "vendedor_nombre", "equipo_vendido", "comision_vendedor"]].copy()
+                df_hist_comis["comision_vendedor"] = df_hist_comis["comision_vendedor"].apply(formato_dolares)
+                df_hist_comis.columns = ["Fecha de Pago", "Vendedor", "Venta", "Monto"]
+                st.dataframe(df_hist_comis, hide_index=True, use_container_width=True)
+        else: st.info("Sin registros en este rango de fechas.")
     else: st.error("🔒 Área exclusiva de administración.")
 
 # ----------------------------------------------------
 # 6. CLIENTES Y DEUDAS
 # ----------------------------------------------------
 with tab_clientes:
-    st.header("👤 Cuentas Corrientes")
+    st.header("👤 Cuentas Corrientes y Base de Clientes")
+    clientes_list = traer_clientes()
     res_vtas = supabase.table("ventas").select("*").execute()
-    if res_vtas.data:
-        df_c = pd.DataFrame(res_vtas.data)
-        df_c["Deuda"] = df_c["precio_final_venta"] - df_c["monto_abonado"]
-        
-        c_cob1, c_cob2 = st.columns(2)
-        with c_cob1:
-            st.subheader("✏ Carver Ficha")
-            st.info("Para editar la información de un cliente, realícelo desde su panel central.")
-        with c_cob2:
-            st.subheader("💸 Cargar Cobro")
+    
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        # --- PANEL DE EDICIÓN DE CLIENTE RESTAURADO ---
+        st.subheader("✏️ Modificar Ficha de Cliente")
+        if clientes_list:
+            dic_cli = {c["nombre"]: c for c in clientes_list}
+            sel_cli_ed = st.selectbox("Seleccionar Cliente a modificar:", list(dic_cli.keys()))
+            cli_data = dic_cli[sel_cli_ed]
+            
+            upd_cli_nom = st.text_input("Nombre / Razón Social", value=cli_data["nombre"])
+            upd_cli_tel = st.text_input("WhatsApp de Contacto", value=cli_data.get("contacto", ""))
+            
+            idx_tipo = ["Minorista", "Mayorista"].index(cli_data.get("tipo", "Minorista")) if cli_data.get("tipo") in ["Minorista", "Mayorista"] else 0
+            upd_cli_tipo = st.selectbox("Categoría Comercial", ["Minorista", "Mayorista"], index=idx_tipo)
+            
+            if st.button("💾 Guardar Cambios de Cliente", use_container_width=True):
+                supabase.table("clientes_ventas").update({
+                    "nombre": upd_cli_nom, 
+                    "contacto": upd_cli_tel, 
+                    "tipo": upd_cli_tipo
+                }).eq("id", cli_data["id"]).execute()
+                
+                # Sincronizamos las ventas para no perder la deuda si le cambia el nombre
+                if upd_cli_nom != cli_data["nombre"]:
+                    supabase.table("ventas").update({"cliente_nombre": upd_cli_nom}).eq("cliente_nombre", cli_data["nombre"]).execute()
+                
+                st.success("Ficha de cliente actualizada.")
+                st.rerun()
+        else:
+            st.info("No hay clientes registrados en la base de datos.")
+
+    with col_c2:
+        st.subheader("💸 Cargar Cobro a Cuenta Corriente")
+        if res_vtas.data:
+            df_c = pd.DataFrame(res_vtas.data)
+            df_c["Deuda"] = df_c["precio_final_venta"] - df_c["monto_abonado"]
             df_deudoras = df_c[df_c["Deuda"] > 0]
+            
             if not df_deudoras.empty:
-                opc_d = {f"Venta #{v['id']} - {v['cliente_nombre']} ({formato_dolares(v['Deuda'])})": v for _, v in df_deudoras.iterrows()}
-                sel_v = st.selectbox("Cuenta:", list(opc_d.keys()))
+                opc_d = {f"Venta #{v['id']} - {v['cliente_nombre']} (Debe: {formato_dolares(v['Deuda'])})": v for _, v in df_deudoras.iterrows()}
+                sel_v = st.selectbox("Cuenta a saldar:", list(opc_d.keys()))
                 v_obj = opc_d[sel_v]
-                n_cobro = st.number_input("Monto (U$S)", max_value=float(v_obj["Deuda"]))
-                if st.button("Registrar Cobro"):
+                n_cobro = st.number_input("Monto (U$S)", max_value=float(v_obj["Deuda"]), min_value=0.0)
+                
+                if st.button("Registrar Cobro", type="primary"):
                     h_p = v_obj.get("historial_pagos") or []
                     h_p.append({"fecha": str(datetime.date.today()), "monto": float(n_cobro)})
-                    supabase.table("ventas").update({"monto_abonado": float(v_obj["monto_abonado"]) + float(n_cobro), "historial_pagos": h_p}).eq("id", int(v_obj["id"])).execute()
-                    st.success("Cobrado.")
+                    supabase.table("ventas").update({
+                        "monto_abonado": float(v_obj["monto_abonado"]) + float(n_cobro), 
+                        "historial_pagos": h_p
+                    }).eq("id", int(v_obj["id"])).execute()
+                    st.success("Cobrado y registrado en la cuenta corriente.")
                     st.rerun()
-                    
-        st.markdown("---")
+            else: st.success("Cuentas corrientes al día.")
+            
+    st.markdown("---")
+    st.write("### 📊 Estado General de Cuentas")
+    if res_vtas.data:
         resumen_cli = df_c.groupby("cliente_nombre").agg({"precio_final_venta":"sum", "monto_abonado":"sum", "Deuda":"sum"}).reset_index()
         resumen_cli.columns = ["Cliente", "Total Comprado", "Total Pagado", "Deuda Pendiente"]
+        resumen_cli["Total Comprado"] = resumen_cli["Total Comprado"].apply(formato_dolares)
+        resumen_cli["Total Pagado"] = resumen_cli["Total Pagado"].apply(formato_dolares)
+        resumen_cli["Deuda Pendiente"] = resumen_cli["Deuda Pendiente"].apply(formato_dolares)
         st.dataframe(resumen_cli, hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------
@@ -579,9 +628,29 @@ with tab_clientes:
 with tab_directorio:
     if es_admin:
         st.header("👥 Gestión de Vendedores")
-        n_v = st.text_input("Nombre completo:")
-        if st.button("Dar de Alta"):
-            supabase.table("vendedores").insert({"nombre": str(n_v)}).execute()
-            st.success("Alta registrada.")
-            st.rerun()
-    else: st.error("🔒 Privado.")
+        
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            st.subheader("➕ Nuevo Vendedor")
+            n_v = st.text_input("Nombre completo:")
+            if st.button("Dar de Alta Vendedor", type="primary"):
+                if n_v:
+                    supabase.table("vendedores").insert({"nombre": str(n_v)}).execute()
+                    st.success(f"{n_v} agregado al equipo.")
+                    st.rerun()
+                    
+        with col_v2:
+            # --- PANEL DE GESTIÓN Y BAJA DE VENDEDORES RESTAURADO ---
+            st.subheader("🗑️ Lista de Vendedores Activos")
+            v_list = supabase.table("vendedores").select("*").execute().data
+            if v_list:
+                for v in v_list:
+                    c_list1, c_list2 = st.columns([3, 1])
+                    c_list1.write(f"🧑‍💼 **{v['nombre']}**")
+                    if c_list2.button("Eliminar", key=f"del_vend_{v['id']}"):
+                        supabase.table("vendedores").delete().eq("id", v['id']).execute()
+                        st.warning(f"Vendedor eliminado.")
+                        st.rerun()
+            else:
+                st.info("No hay vendedores cargados en el sistema.")
+    else: st.error("🔒 Privado. Acceso exclusivo de administración.")
