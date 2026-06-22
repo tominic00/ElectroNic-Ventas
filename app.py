@@ -26,6 +26,37 @@ if "admin_auth" not in st.session_state:
 es_admin = st.session_state.admin_auth
 
 # ==============================================================================
+# CATÁLOGO ESTANDARIZADO DE APPLE (Para evitar mal tipeo)
+# ==============================================================================
+LISTA_MODELOS_IPHONE = [
+    "iPhone 17 Pro Max 512GB", "iPhone 17 Pro Max 256GB",
+    "iPhone 17 Pro 256GB", "iPhone 17 Pro 128GB",
+    "iPhone 17 256GB", "iPhone 17 128GB",
+    "iPhone 16 Pro Max 512GB", "iPhone 16 Pro Max 256GB",
+    "iPhone 16 Pro 256GB", "iPhone 16 Pro 128GB",
+    "iPhone 16 Plus 256GB", "iPhone 16 Plus 128GB",
+    "iPhone 16 256GB", "iPhone 16 128GB",
+    "iPhone 15 Pro Max 512GB", "iPhone 15 Pro Max 256GB",
+    "iPhone 15 Pro 256GB", "iPhone 15 Pro 128GB",
+    "iPhone 15 Plus 128GB", "iPhone 15 128GB",
+    "iPhone 14 Pro Max 256GB", "iPhone 14 Pro Max 128GB",
+    "iPhone 14 Pro 128GB", "iPhone 14 Plus 128GB",
+    "iPhone 14 128GB", "iPhone 13 Pro Max 128GB",
+    "iPhone 13 Pro 128GB", "iPhone 13 128GB",
+    "iPhone 12 Pro Max 128GB", "iPhone 12 Pro 128GB",
+    "iPhone 12 128GB", "iPhone 12 64GB",
+    "iPhone 11 Pro Max 64GB", "iPhone 11 Pro 64GB",
+    "iPhone 11 128GB", "iPhone 11 64GB"
+]
+
+LISTA_COLORES_APPLE = [
+    "Natural Titanium", "Desert Titanium", "Black Titanium", "White Titanium",
+    "Blue Titanium", "Space Gray", "Silver", "Gold", "Graphite", "Deep Purple",
+    "Midnight", "Starlight", "Blue", "Pacific Blue", "Sierra Blue", "Alpine Green",
+    "Green", "Pink", "Yellow", "Red (Product)", "Teal", "Ultramarine"
+]
+
+# ==============================================================================
 # FUNCIONES AUXILIARES Y FORMATOS
 # ==============================================================================
 def formato_dolares(valor):
@@ -176,19 +207,20 @@ tab_stock, tab_venta, tab_pedidos, tab_historial, tab_finanzas, tab_clientes, ta
 ])
 
 # ----------------------------------------------------
-# 1. INVENTARIO
+# 1. INVENTARIO (CON LISTAS DESPLEGABLES DEL CATÁLOGO)
 # ----------------------------------------------------
 with tab_stock:
     res_all_stock = supabase.table("inventario").select("*").in_("estado", ["Disponible", "Reservado"]).execute()
     df_all = pd.DataFrame(res_all_stock.data) if res_all_stock.data else pd.DataFrame()
     
     if es_admin:
-        with st.expander("📥 Cargar Stock (Ingreso Individual)"):
+        with st.expander("📥 Cargar Stock (Ingreso Individual - Catálogo Cerrado)"):
             col1, col2, col3 = st.columns(3)
             with col1:
-                mod_modelo = st.text_input("Modelo", placeholder="Ej: iPhone 17 Pro Max 256GB")
-                mod_color = st.text_input("Color", placeholder="Ej: Titanium Natural")
-                mod_imei = st.text_input("IMEI")
+                # CAMBIO CLAVE: Selectbox en lugar de TextInput libre
+                mod_modelo = st.selectbox("Modelo de iPhone", LISTA_MODELOS_IPHONE)
+                mod_color = st.selectbox("Color Oficial", LISTA_COLORES_APPLE)
+                mod_imei = st.text_input("IMEI (Hacé clic acá antes de usar la cámara/pistola escáner)")
                 mod_condicion = st.selectbox("Condición", ["Sellado", "Usado", "CPO"])
                 mod_bateria = "100%" if mod_condicion == "Sellado" else st.text_input("Batería %", value="100%")
             with col2:
@@ -207,7 +239,7 @@ with tab_stock:
                         "costo_equipo": float(cst_equipo), "costo_importacion": float(cst_carga), "costo_financiero": float(cst_finan),
                         "precio_super_mayorista": float(pr_super), "precio_mayorista": float(pr_mayo), "precio_minorista": float(pr_mino), "estado": "Disponible", "origen": "Importado"
                     }).execute()
-                    st.success("✅ Guardado.")
+                    st.success("✅ Guardado de forma estandarizada.")
                     st.rerun()
 
         if not df_all.empty:
@@ -258,8 +290,13 @@ with tab_stock:
             if id_ed:
                 eq = df_v[df_v["id"] == id_ed].iloc[0]
                 ed_c1, ed_c2 = st.columns(2)
-                ed_mod = ed_c1.text_input("Modelo", value=eq["modelo"], key="ed_m")
-                ed_col = ed_c1.text_input("Color", value=eq.get("color",""), key="ed_c")
+                
+                # CAMBIO CLAVE: En la edición individual también se fuerza el uso de selectbox estandarizados
+                idx_mod_init = LISTA_MODELOS_IPHONE.index(eq["modelo"]) if eq["modelo"] in LISTA_MODELOS_IPHONE else 0
+                idx_col_init = LISTA_COLORES_APPLE.index(eq["color"]) if eq.get("color") in LISTA_COLORES_APPLE else 0
+                
+                ed_mod = ed_c1.selectbox("Modelo", LISTA_MODELOS_IPHONE, index=idx_mod_init, key="ed_m")
+                ed_col = ed_c1.selectbox("Color", LISTA_COLORES_APPLE, index=idx_col_init, key="ed_c")
                 ed_imei = ed_c1.text_input("IMEI", value=eq["imei"], key="ed_i")
                 ed_p_mino = ed_c2.number_input("Precio Público", value=float(eq["precio_minorista"]))
                 ed_p_super = ed_c2.number_input("Precio Super Mayo", value=float(eq["precio_super_mayorista"]))
@@ -285,7 +322,7 @@ with tab_stock:
     else: st.warning("Sin stock disponible.")
 
 # ----------------------------------------------------
-# 2. OPERACIONES (VENTAS Y PEDIDOS CON CAJA BIMONETARIA)
+# 2. OPERACIONES
 # ----------------------------------------------------
 with tab_venta:
     st.header("🤝 Cerrar Operación en Mostrador")
@@ -320,8 +357,9 @@ with tab_venta:
                 canje_mod = canje_col = canje_bat = canje_imei = ""
                 val_canje = 0.0
                 if hay_canje:
-                    canje_mod = st.text_input("Modelo Usado")
-                    canje_col = st.text_input("Color Usado")
+                    # En Plan Canje también forzamos selectbox para que ingrese impecable al stock de usados
+                    canje_mod = st.selectbox("Modelo Usado Recibido", LISTA_MODELOS_IPHONE, key="c_m_c")
+                    canje_col = st.selectbox("Color Usado Recibido", LISTA_COLORES_APPLE, key="c_c_c")
                     canje_bat = st.text_input("Batería %")
                     canje_imei = st.text_input("IMEI Usado")
                     val_canje = st.number_input("Cotización Usado (U$S)", min_value=0.0)
@@ -402,7 +440,6 @@ with tab_venta:
                         }).execute()
                         st.success("🎉 Venta confirmada con cálculo de caja correcto.")
                         st.rerun()
-                    else: st.error("Faltan campos obligatorios.")
 
 # ----------------------------------------------------
 # 3. GESTIÓN DE PEDIDOS ACTIVOS
@@ -420,7 +457,7 @@ with tab_pedidos:
         st.dataframe(df_p_show, use_container_width=True, hide_index=True)
         
         st.markdown("---")
-        st.subheader("⚡ Despachar o Emitir Presupuesto con Deuda")
+        st.subheader("⚡ Acciones del Pedido Seleccionado")
         id_p_facturar = st.selectbox("Seleccioná el N° de Pedido:", df_p["id"].tolist())
         
         if id_p_facturar:
@@ -432,7 +469,6 @@ with tab_pedidos:
                 for v in res_v_cli.data:
                     deuda_anterior += max(0.0, float(v["precio_final_venta"]) - float(v["monto_abonado"]))
             
-            # --- CAJA BIMONETARIA EN DESPACHO DE PEDIDOS ---
             st.write(f"Total a cobrar por este pedido: **{formato_dolares(p_sel['total_pedido'])}**")
             cp_p1, cp_p2, cp_p3 = st.columns(3)
             p_pago_usd = cp_p1.number_input("Pago en Dólares (U$S)", min_value=0.0, step=10.0, value=float(p_sel['total_pedido']), key="pp_usd")
@@ -499,7 +535,7 @@ with tab_pedidos:
         st.success("✨ No hay ningún pedido pendiente reteniendo stock. Todo el local está libre.")
 
 # ----------------------------------------------------
-# 4. HISTORIAL DE VENTAS CON REINTEGRO Y PURGA DE COMISIONES
+# 4. HISTORIAL DE VENTAS
 # ----------------------------------------------------
 with tab_historial:
     st.header("📜 Historial de Ventas")
@@ -515,9 +551,7 @@ with tab_historial:
         if es_admin:
             st.markdown("---")
             st.subheader("⚙️ Panel Administrativo de Anulación de Ventas")
-            st.write("Si eliminas una venta, **se borrará su registro de caja y comisiones de forma definitiva** instantáneamente.")
             id_venta_borrar = st.selectbox("Seleccioná el ID de la venta que deseas anular y borrar:", df_v["id"].tolist(), key="sel_id_v_del")
-            
             reintegrar_stock = st.checkbox("🔄 Reintegrar automáticamente los iPhones de esta venta de vuelta al Inventario (cambiar a Disponible)", value=True, key="reintegrar_stock")
             
             if st.button("🗑️ ANULAR Y ELIMINAR VENTA PERMANENTEMENTE", type="primary", use_container_width=True):
@@ -529,15 +563,14 @@ with tab_historial:
                         supabase.table("inventario").update({"estado": "Disponible"}).in_("imei", lista_imeis).execute()
                         st.info(f"Se reingresaron {len(lista_imeis)} equipos al mostrador.")
                 
-                # Al eliminar la fila de 'ventas', las comisiones desaparecen para siempre del sistema.
                 supabase.table("ventas").delete().eq("id", int(id_venta_borrar)).execute()
-                st.cache_data.clear() # Forzamos recarga de memoria
-                st.success(f"Venta #{id_venta_borrar} anulada. Las comisiones asociadas ya no generarán deuda al local.")
+                st.cache_data.clear() 
+                st.success(f"Venta #{id_venta_borrar} anulada.")
                 st.rerun()
     else: st.info("Sin registros.")
 
 # ----------------------------------------------------
-# 5. FINANZAS Y COMISIONES (ADMIN)
+# 5. FINANZAS Y COMISIONES
 # ----------------------------------------------------
 with tab_finanzas:
     if es_admin:
@@ -566,16 +599,6 @@ with tab_finanzas:
                     st.success("Pagado.")
                     st.rerun()
             else: st.success("Todas las comisiones están pagadas.")
-            
-            st.markdown("---")
-            st.subheader("📚 Historial de Comisiones Pagadas")
-            df_pagadas = df_f[df_f["comision_pagada"] == True]
-            if not df_pagadas.empty:
-                df_hist_comis = df_pagadas[["fecha_pago_comision", "vendedor_nombre", "equipo_vendido", "comision_vendedor"]].copy()
-                df_hist_comis["comision_vendedor"] = df_hist_comis["comision_vendedor"].apply(formato_dolares)
-                df_hist_comis.columns = ["Fecha de Pago", "Vendedor", "Venta", "Monto"]
-                st.dataframe(df_hist_comis, hide_index=True, use_container_width=True)
-        else: st.info("Sin registros en este rango de fechas.")
     else: st.error("🔒 Área exclusiva de administración.")
 
 # ----------------------------------------------------
@@ -596,24 +619,15 @@ with tab_clientes:
             
             upd_cli_nom = st.text_input("Nombre / Razón Social", value=cli_data["nombre"])
             upd_cli_tel = st.text_input("WhatsApp de Contacto", value=cli_data.get("contacto", ""))
-            
             idx_tipo = ["Minorista", "Mayorista"].index(cli_data.get("tipo", "Minorista")) if cli_data.get("tipo") in ["Minorista", "Mayorista"] else 0
             upd_cli_tipo = st.selectbox("Categoría Comercial", ["Minorista", "Mayorista"], index=idx_tipo)
             
             if st.button("💾 Guardar Cambios de Cliente", use_container_width=True):
-                supabase.table("clientes_ventas").update({
-                    "nombre": str(upd_cli_nom), 
-                    "contacto": str(upd_cli_tel), 
-                    "tipo": str(upd_cli_tipo)
-                }).eq("id", cli_data["id"]).execute()
-                
+                supabase.table("clientes_ventas").update({"nombre": str(upd_cli_nom), "contacto": str(upd_cli_tel), "tipo": str(upd_cli_tipo)}).eq("id", cli_data["id"]).execute()
                 if upd_cli_nom != cli_data["nombre"]:
                     supabase.table("ventas").update({"cliente_nombre": str(upd_cli_nom)}).eq("cliente_nombre", cli_data["nombre"]).execute()
-                
                 st.success("Ficha de cliente actualizada.")
                 st.rerun()
-        else:
-            st.info("No hay clientes registrados en la base de datos.")
 
     with col_c2:
         st.subheader("💸 Cargar Cobro a Cuenta Corriente")
@@ -639,10 +653,7 @@ with tab_clientes:
                 if st.button("Registrar Cobro", type="primary", use_container_width=True):
                     h_p = v_obj.get("historial_pagos") or []
                     h_p.append({"fecha": str(datetime.date.today()), "monto": float(n_cobro_total)})
-                    supabase.table("ventas").update({
-                        "monto_abonado": float(v_obj["monto_abonado"]) + float(n_cobro_total), 
-                        "historial_pagos": h_p
-                    }).eq("id", int(v_obj["id"])).execute()
+                    supabase.table("ventas").update({"monto_abonado": float(v_obj["monto_abonado"]) + float(n_cobro_total), "historial_pagos": h_p}).eq("id", int(v_obj["id"])).execute()
                     st.success("Cobrado y registrado en la cuenta corriente.")
                     st.rerun()
             else: st.success("Cuentas corrientes al día.")
@@ -663,7 +674,6 @@ with tab_clientes:
 with tab_directorio:
     if es_admin:
         st.header("👥 Gestión de Vendedores")
-        
         col_v1, col_v2 = st.columns(2)
         with col_v1:
             st.subheader("➕ Nuevo Vendedor")
@@ -673,7 +683,6 @@ with tab_directorio:
                     supabase.table("vendedores").insert({"nombre": str(n_v)}).execute()
                     st.success(f"{n_v} agregado al equipo.")
                     st.rerun()
-                    
         with col_v2:
             st.subheader("🗑️ Lista de Vendedores Activos")
             v_list = supabase.table("vendedores").select("*").execute().data
@@ -685,6 +694,4 @@ with tab_directorio:
                         supabase.table("vendedores").delete().eq("id", int(v['id'])).execute()
                         st.warning(f"Vendedor eliminado.")
                         st.rerun()
-            else:
-                st.info("No hay vendedores cargados en el sistema.")
     else: st.error("🔒 Privado. Acceso exclusivo de administración.")
