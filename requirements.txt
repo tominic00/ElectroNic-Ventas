@@ -1,0 +1,7 @@
+streamlit
+supabase
+pandas
+reportlab
+qrcode
+Pillow
+requests
