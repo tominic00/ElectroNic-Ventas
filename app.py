@@ -52,38 +52,26 @@ def obtener_dolar_blue():
 
 dolar_compra, dolar_venta = obtener_dolar_blue()
 
-# --- MOTOR PDF PROFESIONAL CON PRECIOS UNITARIOS Y ESTADO DE CUENTA ---
 def generar_presupuesto_pdf(cliente, lista_equipos, descuento, canje_info, valor_canje, total, deuda_anterior=0.0):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    
-    # Encabezado Corporativo
     c.setFont("Helvetica-Bold", 24)
     c.drawString(50, 800, "ELECTRONIC")
     c.setFont("Helvetica", 10)
     c.drawString(50, 785, "Venta de iPhones Nuevos y Usados | Tucumán")
-    
     c.setFont("Helvetica-Bold", 11)
     c.drawRightString(550, 800, "PRESUPUESTO OFICIAL")
     c.setFont("Helvetica", 10)
     c.drawRightString(550, 785, f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}")
-    
     c.setLineWidth(1)
     c.line(50, 770, 550, 770)
-    
-    # Datos del Cliente
     c.setFont("Helvetica-Bold", 11)
     c.drawString(50, 745, "DATOS DEL CLIENTE:")
     c.setFont("Helvetica", 11)
     c.drawString(50, 725, f"Señor/a: {cliente}")
-    
     c.line(50, 710, 550, 710)
-    
-    # Tabla de Productos
     c.setFont("Helvetica-Bold", 11)
     c.drawString(50, 685, "DETALLE DEL PEDIDO:")
-    
-    # Encabezados de Tabla
     c.setFont("Helvetica-Bold", 10)
     c.drawString(60, 660, "Item / Descripción del Equipo")
     c.drawRightString(540, 660, "Precio Unitario")
@@ -102,70 +90,47 @@ def generar_presupuesto_pdf(cliente, lista_equipos, descuento, canje_info, valor
         
     y -= 10
     c.line(50, y, 550, y)
-    
-    # Bloque de Totales y Ajustes del Pedido
     y -= 25
     c.setFont("Helvetica", 11)
     c.drawString(320, y, "Subtotal Neto Pedido:")
     c.drawRightString(540, y, formato_dolares(subtotal))
-    
     if descuento > 0:
         y -= 20
         c.drawString(320, y, "Descuentos Aplicados:")
         c.drawRightString(540, y, f"- {formato_dolares(descuento)}")
-        
     if valor_canje > 0:
         y -= 20
-        c.setFont("Helvetica-Bold", 10)
         c.drawString(320, y, "Plan Canje Recibido:")
-        c.setFont("Helvetica", 10)
         c.drawString(60, y, f"🔄 Tomado en pago: {canje_info}")
         c.drawRightString(540, y, f"- {formato_dolares(valor_canje)}")
-        
     y -= 15
     c.line(320, y, 540, y)
-    
     y -= 25
     c.setFont("Helvetica-Bold", 12)
     c.drawString(320, y, "TOTAL ESTE PEDIDO:")
     c.drawRightString(540, y, formato_dolares(total))
     
-    # --- BLOQUE DE ESTADO DE CUENTA / DEUDA RESALTADO ---
     y -= 35
-    c.setLineWidth(1.5)
     c.line(50, y, 550, y)
     y -= 20
     c.setFont("Helvetica-Bold", 12)
     c.drawString(50, y, "📊 ESTADO DE CUENTA CORRIENTE ACUMULADA")
-    
     y -= 22
     c.setFont("Helvetica", 11)
     c.drawString(60, y, f"Saldo Deuda Histórica Anterior:")
     c.drawRightString(540, y, formato_dolares(deuda_anterior))
-    
     y -= 20
     c.drawString(60, y, f"+ Saldo de este nuevo pedido:")
     c.drawRightString(540, y, formato_dolares(total))
-    
     y -= 10
-    c.setLineWidth(1)
     c.line(320, y, 540, y)
-    
-    # RECUADRO DE NUEVA DEUDA TOTAL RESALTADO
     y -= 25
     nueva_deuda_total = deuda_anterior + total
     c.setFont("Helvetica-Bold", 13)
     c.drawString(60, y, "🚀 NUEVA DEUDA TOTAL ACUMULADA:")
     c.drawRightString(540, y, formato_dolares(nueva_deuda_total))
-    
     y -= 15
     c.line(50, y, 550, y)
-    
-    # Términos comerciales
-    c.setFont("Helvetica-Oblique", 9)
-    c.drawString(50, 50, "* Cotización de referencia y stock garantizados por un periodo máximo de 24 horas.")
-    c.drawString(50, 35, "* Los equipos tomados en Plan Canje se encuentran sujetos a verificación física final en el mostrador.")
-    
     c.save()
     buffer.seek(0)
     return buffer
@@ -210,10 +175,10 @@ tab_stock, tab_venta, tab_pedidos, tab_historial, tab_finanzas, tab_clientes, ta
 ])
 
 # ----------------------------------------------------
-# 1. INVENTARIO
+# 1. INVENTARIO (CON ELIMINACIÓN DE STOCK INCLUIDA)
 # ----------------------------------------------------
 with tab_stock:
-    res_all_stock = supabase.table("inventario").select("*").eq("estado", "Disponible").execute()
+    res_all_stock = supabase.table("inventario").select("*").in_("estado", ["Disponible", "Reservado"]).execute()
     df_all = pd.DataFrame(res_all_stock.data) if res_all_stock.data else pd.DataFrame()
     
     if es_admin:
@@ -244,7 +209,6 @@ with tab_stock:
                     st.success("✅ Guardado.")
                     st.rerun()
 
-        # Remarcación masiva
         if not df_all.empty:
             with st.expander("⚡ ACTUALIZACIÓN MASIVA DE PRECIOS Y COSTOS"):
                 tipo_remarca = st.radio("Método de remarcación:", ["Por Modelo de Celular", "Por Selección Manual de Equipos"], horizontal=True)
@@ -286,9 +250,10 @@ with tab_stock:
         df_v = df_all if mod_sel == "Mostrar Todo" else df_all[df_all["modelo"] == mod_sel]
         
         if es_admin:
-            st.dataframe(df_v[["id", "modelo", "color", "condicion", "bateria", "imei", "costo_total", "precio_super_mayorista", "precio_minorista"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_v[["id", "modelo", "color", "condicion", "bateria", "imei", "estado", "costo_total", "precio_minorista"]], use_container_width=True, hide_index=True)
             
-            id_ed = st.selectbox("Seleccionar ID para corregir:", df_v["id"].tolist())
+            st.markdown("### ✏️ Panel de Gestión de Ficha (Editar / Eliminar)")
+            id_ed = st.selectbox("Seleccionar ID del equipo en stock para gestionar:", df_v["id"].tolist())
             if id_ed:
                 eq = df_v[df_v["id"] == id_ed].iloc[0]
                 ed_c1, ed_c2 = st.columns(2)
@@ -297,13 +262,22 @@ with tab_stock:
                 ed_imei = ed_c1.text_input("IMEI", value=eq["imei"], key="ed_i")
                 ed_p_mino = ed_c2.number_input("Precio Público", value=float(eq["precio_minorista"]))
                 ed_p_super = ed_c2.number_input("Precio Super Mayo", value=float(eq["precio_super_mayorista"]))
-                if st.button("💾 Guardar Ficha Individual"):
-                    supabase.table("inventario").update({
-                        "modelo": str(ed_mod), "color": str(ed_col), "imei": str(ed_imei), 
-                        "precio_minorista": float(ed_p_mino), "precio_super_mayorista": float(ed_p_super)
-                    }).eq("id", int(id_ed)).execute()
-                    st.success("Sincronizado.")
-                    st.rerun()
+                
+                b_ed1, b_ed2 = st.columns(2)
+                with b_ed1:
+                    if st.button("💾 Guardar Cambios Individuales", use_container_width=True):
+                        supabase.table("inventario").update({
+                            "modelo": str(ed_mod), "color": str(ed_col), "imei": str(ed_imei), 
+                            "precio_minorista": float(ed_p_mino), "precio_super_mayorista": float(ed_p_super)
+                        }).eq("id", int(id_ed)).execute()
+                        st.success("Sincronizado.")
+                        st.rerun()
+                with b_ed2:
+                    # --- ELIMINAR DISPOSITIVO DEL STOCK ---
+                    if st.button("🗑️ ELIMINAR CELULAR DEL STOCK PERMANENTEMENTE", type="primary", use_container_width=True):
+                        supabase.table("inventario").delete().eq("id", int(id_ed)).execute()
+                        st.success("Equipo eliminado de las bases de datos.")
+                        st.rerun()
         else:
             df_vend = df_v[["modelo", "color", "condicion", "bateria", "precio_minorista"]].copy()
             df_vend["precio_minorista"] = df_vend["precio_minorista"].apply(formato_dolares)
@@ -311,7 +285,7 @@ with tab_stock:
     else: st.warning("Sin stock disponible.")
 
 # ----------------------------------------------------
-# 2. OPERACIONES (VENTAS Y PEDIDOS CORREGIDOS)
+# 2. OPERACIONES (VENTAS Y PEDIDOS)
 # ----------------------------------------------------
 with tab_venta:
     st.header("🤝 Cerrar Operación en Mostrador")
@@ -374,7 +348,6 @@ with tab_venta:
                         for eq_id in ids_lote:
                             supabase.table("inventario").update({"estado": "Reservado"}).eq("id", eq_id).execute()
                         
-                        # PASAMOS TODO EL LOG DE CANJE COMPLETO AL PEDIDO
                         supabase.table("pedidos").insert({
                             "cliente_nombre": str(cliente_final), "vendedor_nombre": str(sel_vendedor),
                             "equipos_reservados": str(nombres_lote), "ids_equipos": ids_lote, 
@@ -414,7 +387,7 @@ with tab_venta:
                         st.rerun()
 
 # ----------------------------------------------------
-# 3. GESTIÓN DE PEDIDOS ACTIVOS (CON COBRO DE CANJE Y PDF COMPLETO)
+# 3. GESTIÓN DE PEDIDOS ACTIVOS (CON OPCIÓN DE ANULACIÓN)
 # ----------------------------------------------------
 with tab_pedidos:
     st.header("📋 Panel de Pedidos y Reservas Pendientes")
@@ -429,44 +402,35 @@ with tab_pedidos:
         st.dataframe(df_p_show, use_container_width=True, hide_index=True)
         
         st.markdown("---")
-        st.subheader("⚡ Despachar o Emitir Presupuesto con Deuda")
+        st.subheader("⚡ Acciones del Pedido Seleccionado")
         id_p_facturar = st.selectbox("Seleccioná el N° de Pedido:", df_p["id"].tolist())
         
         if id_p_facturar:
             p_sel = df_p[df_p["id"] == id_p_facturar].iloc[0]
             
-            # --- CÁLCULO DE DEUDA HISTÓRICA REAL EN TIEMPO REAL ---
             res_v_cli = supabase.table("ventas").select("precio_final_venta", "monto_abonado").eq("cliente_nombre", p_sel["cliente_nombre"]).execute()
             deuda_anterior = 0.0
             if res_v_cli.data:
                 for v in res_v_cli.data:
                     deuda_anterior += max(0.0, float(v["precio_final_venta"]) - float(v["monto_abonado"]))
             
-            col_bp1, col_b2 = st.columns(2)
+            col_bp1, col_b2, col_b3 = st.columns(3)
             
             with col_bp1:
-                # TRAEMOS LOS EQUIPOS DE ESTE PEDIDO DE FORMA INTERNA PARA DAR PRECIO UNITARIO AL PDF
                 lista_equipos_pdf = []
                 if "ids_equipos" in p_sel and p_sel["ids_equipos"]:
                     res_eq_p = supabase.table("inventario").select("*").in_("id", p_sel["ids_equipos"]).execute()
                     if res_eq_p.data: lista_equipos_pdf = res_eq_p.data
                 
-                # EMITIR EL PDF RESALTANDO LA DEUDA
                 canje_txt = f"{p_sel.get('equipo_recibido_canje','')} {p_sel.get('canje_color','')}" if p_sel.get('equipo_recibido_canje') != 'Ninguno' else 'Ninguno'
-                pdf_pedido = generar_presupuesto_pdf(
-                    p_sel["cliente_nombre"], lista_equipos_pdf, 0.0, 
-                    canje_txt, float(p_sel.get("cotizacion_canje", 0.0)), 
-                    float(p_sel["total_pedido"]), deuda_anterior
-                )
-                st.download_button("📄 EMITIR PDF OFICIAL CON DEUDA RESALTADA", pdf_pedido, f"Pedido_{id_p_facturar}_{p_sel['cliente_nombre']}.pdf", "application/pdf", use_container_width=True)
+                pdf_pedido = generar_presupuesto_pdf(p_sel["cliente_nombre"], lista_equipos_pdf, 0.0, canje_txt, float(p_sel.get("cotizacion_canje", 0.0)), float(p_sel["total_pedido"]), deuda_anterior)
+                st.download_button("📄 EMITIR PDF CON DEUDA", pdf_pedido, f"Pedido_{id_p_facturar}.pdf", "application/pdf", use_container_width=True)
             
             with col_b2:
-                if st.button("🚀 CONFIRMAR ENTREGA Y FACTURAR VENTA DEFINITIVA", type="primary", use_container_width=True):
-                    # 1. Cambiamos stock de Reservado a Vendido de forma real
+                if st.button("🚀 CONFIRMAR ENTREGA Y FACTURAR VENTA", type="primary", use_container_width=True):
                     for eq_id in p_sel["ids_equipos"]:
                         supabase.table("inventario").update({"estado": "Vendido"}).eq("id", int(eq_id)).execute()
                     
-                    # 2. Si el pedido guardaba un canje, lo inyectamos al stock de usados ahora mismo
                     c_mod = p_sel.get("equipo_recibido_canje", "Ninguno")
                     c_col = p_sel.get("canje_color", "")
                     c_bat = p_sel.get("canje_bateria", "")
@@ -480,46 +444,61 @@ with tab_pedidos:
                             "precio_minorista": c_val + 150, "estado": "Disponible", "origen": "Canje"
                         }).execute()
 
-                    # 3. Cerramos el pedido
                     supabase.table("pedidos").update({"estado": "Completado"}).eq("id", int(id_p_facturar)).execute()
                     
-                    # 4. Impactamos la Venta final arrastrando los de canjes e historial
                     supabase.table("ventas").insert({
-                        "cliente_nombre": str(p_sel["cliente_nombre"]),
-                        "vendedor_nombre": str(p_sel["vendedor_nombre"]),
+                        "cliente_nombre": str(p_sel["cliente_nombre"]), "vendedor_nombre": str(p_sel["vendedor_nombre"]),
                         "equipo_vendido": f"DESPACHO PEDIDO #{id_p_facturar}: {p_sel['equipos_reservados']}",
-                        "precio_final_venta": float(p_sel["total_pedido"]) + c_val, # Se guarda el precio antes del canje
-                        "monto_abonado": float(p_sel["total_pedido"]), # El efectivo real que entra
-                        "comision_vendedor": float(p_sel.get("comision_vendedor", 0.0)),
-                        "ganancia_neta_local": float(p_sel.get("ganancia_neta_local", 0.0)),
-                        "comision_pagada": False,
-                        "equipo_recibido_canje": str(c_mod),
-                        "cotizacion_canje": c_val,
-                        "canje_imei": str(c_imei),
-                        "canje_bateria": str(c_bat),
+                        "precio_final_venta": float(p_sel["total_pedido"]) + c_val, "monto_abonado": float(p_sel["total_pedido"]),
+                        "comision_vendedor": float(p_sel.get("comision_vendedor", 0.0)), "ganancia_neta_local": float(p_sel.get("ganancia_neta_local", 0.0)),
+                        "comision_pagada": False, "equipo_recibido_canje": str(c_mod), "cotizacion_canje": c_val, "canje_imei": str(c_imei), "canje_bateria": str(c_bat),
                         "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(p_sel["total_pedido"])}] if float(p_sel["total_pedido"]) > 0 else []
                     }).execute()
+                    st.success("🎉 ¡Pedido facturado!")
+                    st.rerun()
+
+            with col_b3:
+                # --- ANULAR PEDIDO ACTIVO (LIBERA STOCK) ---
+                if st.button("❌ ANULAR Y CANCELAR PEDIDO", use_container_width=True):
+                    # 1. Regresamos los iPhones a "Disponible"
+                    for eq_id in p_sel["ids_equipos"]:
+                        supabase.table("inventario").update({"estado": "Disponible"}).eq("id", int(eq_id)).execute()
                     
-                    st.success(f"🎉 ¡Pedido N° {id_p_facturar} despachado! El iPhone de canje ingresó al stock de usados y se liquidó la comisión del vendedor.")
+                    # 2. Eliminamos el pedido pendiente de la nube
+                    supabase.table("pedidos").delete().eq("id", int(id_p_facturar)).execute()
+                    st.success(f"Pedido N° {id_p_facturar} anulado. Los celulares volvieron al mostrador como 'Disponibles'.")
                     st.rerun()
     else:
         st.success("✨ No hay ningún pedido pendiente reteniendo stock. Todo el local está libre.")
 
 # ----------------------------------------------------
-# 4. HISTORIAL DE VENTAS CONFIRMADAS
+# 4. HISTORIAL DE VENTAS CON PANEL DE ANULACIÓN
 # ----------------------------------------------------
 with tab_historial:
     st.header("📜 Historial de Ventas")
     res_v = supabase.table("ventas").select("*").order("id", desc=True).execute()
     if res_v.data:
         df_v = pd.DataFrame(res_v.data)
-        df_v_show = df_v[["fecha_venta", "equipo_vendido", "precio_final_venta", "monto_abonado", "cliente_nombre", "vendedor_nombre"]].copy()
+        df_v_show = df_v[["id", "fecha_venta", "equipo_vendido", "precio_final_venta", "monto_abonado", "cliente_nombre", "vendedor_nombre"]].copy()
         df_v_show["precio_final_venta"] = df_v_show["precio_final_venta"].apply(formato_dolares)
         df_v_show["monto_abonado"] = df_v_show["monto_abonado"].apply(formato_dolares)
         st.dataframe(df_v_show, use_container_width=True, hide_index=True)
 
+        # --- ANULAR Y ELIMINAR VENTA DEL HISTORIAL ---
+        if es_admin:
+            st.markdown("---")
+            st.subheader("⚙️ Panel Administrativo de Anulación de Ventas")
+            st.write("Si eliminas una venta, se borrará su registro de caja y comisiones de forma definitiva.")
+            id_venta_borrar = st.selectbox("Seleccioná el ID de la venta que deseas anular y borrar:", df_v["id"].tolist(), key="sel_id_v_del")
+            
+            if st.button("🗑️ ANULAR Y ELIMINAR VENTA PERMANENTEMENTE", type="primary", use_container_width=True):
+                supabase.table("ventas").delete().eq("id", int(id_venta_borrar)).execute()
+                st.success(f"Venta #{id_venta_borrar} anulada y eliminada del historial con éxito.")
+                st.rerun()
+    else: st.info("Sin registros.")
+
 # ----------------------------------------------------
-# 5. FINANZAS Y COMISIONES (ADMIN)
+# 5. FINANZAS Y COMISIONES
 # ----------------------------------------------------
 with tab_finanzas:
     if es_admin:
