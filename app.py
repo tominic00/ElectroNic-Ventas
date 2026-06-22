@@ -227,7 +227,6 @@ with tab_stock:
     if res_stock.data:
         df_stock = pd.DataFrame(res_stock.data)
         
-        # Selectbox dinámico para segregar modelos
         modelos_disponibles = sorted(df_stock["modelo"].unique().tolist())
         modelo_seleccionado = st.selectbox("🔲 Selecciona un modelo de iPhone para auditar stock presente:", ["Mostrar Todo"] + modelos_disponibles)
         
@@ -247,20 +246,29 @@ with tab_stock:
                 eq_ed = df_filtrado[df_filtrado["id"] == id_editar].iloc[0]
                 c_ed1, c_ed2, c_ed3 = st.columns(3)
                 with c_ed1:
-                    upd_mod = st.text_input("Modelo", value=eq_ed["modelo"], key="ue_m")
-                    upd_color = st.text_input("Color", value=eq_ed.get("color", ""), key="ue_col")
-                    upd_imei = st.text_input("IMEI", value=eq_ed["imei"], key="ue_i")
-                    upd_cond = st.selectbox("Condición", ["Sellado", "Usado", "CPO"], index=["Sellado", "Usado", "CPO"].index(eq_ed["condicion"]) if eq_ed["condicion"] in ["Sellado", "Usado", "CPO"] else 0)
-                    upd_bat = "100%" if upd_cond == "Sellado" else st.text_input("Batería %", value=eq_ed.get("bateria", "100%"))
-                    upd_est = st.selectbox("Estado Stock", ["Disponible", "Reservado", "Vendido"], index=["Disponible", "Reservado", "Vendido"].index(eq_ed["estado"]))
+                    upd_mod = st.text_input("Modelo", value=eq_ed["modelo"], key=f"ue_m_{id_editar}")
+                    upd_color = st.text_input("Color", value=eq_ed.get("color", ""), key=f"ue_col_{id_editar}")
+                    upd_imei = st.text_input("IMEI", value=eq_ed["imei"], key=f"ue_i_{id_editar}")
+                    
+                    idx_cond = ["Sellado", "Usado", "CPO"].index(eq_ed["condicion"]) if eq_ed["condicion"] in ["Sellado", "Usado", "CPO"] else 0
+                    upd_cond = st.selectbox("Condición", ["Sellado", "Usado", "CPO"], index=idx_cond, key=f"ue_cond_{id_editar}")
+                    
+                    if upd_cond == "Sellado":
+                        upd_bat = "100%"
+                    else:
+                        upd_bat = st.text_input("Batería %", value=eq_ed.get("bateria", "100%"), key=f"ue_bat_{id_editar}")
+                        
+                    idx_est = ["Disponible", "Reservado", "Vendido"].index(eq_ed["estado"]) if eq_ed["estado"] in ["Disponible", "Reservado", "Vendido"] else 0
+                    upd_est = st.selectbox("Estado Stock", ["Disponible", "Reservado", "Vendido"], index=idx_est, key=f"ue_est_{id_editar}")
+                    
                 with c_ed2:
-                    upd_cst_eq = st.number_input("Costo Equipo", value=float(eq_ed["costo_equipo"]))
-                    upd_cst_cg = st.number_input("Carga EEUU-TUC", value=float(eq_ed["costo_importacion"]))
-                    upd_cst_fi = st.number_input("Costo Financiero", value=float(eq_ed["costo_financiero"]))
+                    upd_cst_eq = st.number_input("Costo Equipo", value=float(eq_ed["costo_equipo"]), key=f"ue_ce_{id_editar}")
+                    upd_cst_cg = st.number_input("Carga EEUU-TUC", value=float(eq_ed["costo_importacion"]), key=f"ue_cc_{id_editar}")
+                    upd_cst_fi = st.number_input("Costo Financiero", value=float(eq_ed["costo_financiero"]), key=f"ue_cf_{id_editar}")
                 with c_ed3:
-                    upd_prs = st.number_input("Precio Super Mayo (Base)", value=float(eq_ed["precio_super_mayorista"]))
-                    upd_prmayo = st.number_input("Precio Mayorista", value=float(eq_ed["precio_mayorista"]))
-                    upd_prmino = st.number_input("Precio Minorista (Público)", value=float(eq_ed["precio_minorista"]))
+                    upd_prs = st.number_input("Precio Super Mayo (Base)", value=float(eq_ed["precio_super_mayorista"]), key=f"ue_ps_{id_editar}")
+                    upd_prmayo = st.number_input("Precio Mayorista", value=float(eq_ed["precio_mayorista"]), key=f"ue_pma_{id_editar}")
+                    upd_prmino = st.number_input("Precio Minorista (Público)", value=float(eq_ed["precio_minorista"]), key=f"ue_pmi_{id_editar}")
                     
                     if st.button("💾 Guardar Cambios Estructurales", type="primary", use_container_width=True):
                         supabase.table("inventario").update({
@@ -287,7 +295,6 @@ with tab_venta:
     v_op1, v_op2 = st.tabs(["🛒 Nueva Venta / Reserva", "📊 Rendimiento de Vendedores"])
     
     with v_op1:
-        # LLAMADAS A LA BASE DE DATOS CORREGIDAS
         equipos_disp = supabase.table("inventario").select("*").eq("estado", "Disponible").execute().data or []
         clientes_list = traer_clientes()
         vendedores_list = supabase.table("vendedores").select("*").execute().data or []
@@ -315,7 +322,7 @@ with tab_venta:
                         cliente_final = st.text_input("Nombre del Cliente:", key="nc_op")
                         tel_cli = st.text_input("WhatsApp:", key="wc_op")
                         tipo_categoria = st.selectbox("Categoría:", ["Minorista", "Mayorista"], key="cc_op")
-                    sel_vendedor = st.selectbox("Vendedor que atiende:", [v["nombre"] for v in vendedores_list], key="sv_op")
+                    sel_vendedor = st.selectbox("Vendedor que atiende:", [v["nombre"] for v in vendedores_list], key="sv_op") if vendedores_list else ""
                     
                     st.subheader("3. Parámetros de Descuento")
                     descuento_manual = st.number_input("Descuento Manual Especial (U$S)", min_value=0.0, step=10.0)
@@ -395,7 +402,6 @@ with tab_venta:
                                 supabase.table("inventario").insert(eq_canje).execute()
 
                             hist_p = [{"fecha": str(datetime.date.today()), "monto": float(monto_abonado)}] if monto_abonado > 0 else []
-                            
                             str_vendido = ", ".join([f"{e['modelo']} {e.get('color', '')}" for e in equipos_seleccionados])
                             
                             supabase.table("ventas").insert({
