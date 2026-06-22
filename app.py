@@ -93,13 +93,12 @@ def generar_presupuesto_pdf(cliente, lista_equipos, descuento, canje_info, valor
     y = 630
     subtotal = 0.0
     for eq in lista_equipos:
-        # Incluir el color en el PDF si existe
         color_texto = f" - {eq.get('color', '')}" if eq.get('color') else ""
         c.drawString(60, y, f"• {eq['modelo']}{color_texto} (S/N: {eq['imei']})")
         c.drawRightString(540, y, formato_dolares(eq['precio_minorista']))
         subtotal += float(eq['precio_minorista'])
         y -= 22
-        if y < 350: break # Control de página
+        if y < 350: break 
         
     y -= 10
     c.line(50, y, 550, y)
@@ -131,7 +130,6 @@ def generar_presupuesto_pdf(cliente, lista_equipos, descuento, canje_info, valor
     c.drawString(320, y, "TOTAL COMPRA:")
     c.drawRightString(540, y, formato_dolares(total))
     
-    # Términos comerciales
     c.setFont("Helvetica-Oblique", 9)
     c.drawString(50, 80, "* Cotización de referencia y stock garantizados por un periodo máximo de 24 horas.")
     c.drawString(50, 65, "* Los equipos tomados en Plan Canje se encuentran sujetos a verificación física final en el mostrador.")
@@ -139,10 +137,6 @@ def generar_presupuesto_pdf(cliente, lista_equipos, descuento, canje_info, valor
     c.save()
     buffer.seek(0)
     return buffer
-
-def traer_tecnicos():
-    res = supabase.table("tecnicos").select("nombre").execute()
-    return [t["nombre"] for t in res.data] if res.data else ["Principal"]
 
 def traer_clientes():
     res = supabase.table("clientes_ventas").select("*").execute()
@@ -239,14 +233,12 @@ with tab_stock:
         
         df_filtrado = df_stock if modelo_seleccionado == "Mostrar Todo" else df_stock[df_stock["modelo"] == modelo_seleccionado]
         
-        # Panel informativo del modelo seleccionado
         cant_disp = len(df_filtrado[df_filtrado["estado"] == "Disponible"])
         cant_res = len(df_filtrado[df_filtrado["estado"] == "Reservado"])
         
         st.info(f"📊 **Auditoría de {modelo_seleccionado}:** Disponibles en mostrador: **{cant_disp} unidades** | Reservados por pedido: **{cant_res} unidades**")
         
         if es_admin:
-            # Vista Admin con todas las variables editables
             st.dataframe(df_filtrado[["id", "modelo", "color", "condicion", "bateria", "imei", "origen", "estado", "costo_total", "precio_minorista"]], use_container_width=True, hide_index=True)
             
             st.markdown("### ✏️ Edición Completa de Parámetros de Stock")
@@ -279,7 +271,6 @@ with tab_stock:
                         st.success("Inventario sincronizado.")
                         st.rerun()
         else:
-            # Vista Vendedor filtrada y limpia (agrego columna color)
             df_vendedor = df_filtrado[["modelo", "color", "condicion", "bateria", "imei", "estado", "precio_minorista"]].copy()
             df_vendedor["precio_minorista"] = df_vendedor["precio_minorista"].apply(formato_dolares)
             df_vendedor.columns = ["Modelo", "Color", "Condición", "Batería", "IMEI", "Estado", "Precio Público (U$S)"]
@@ -296,12 +287,15 @@ with tab_venta:
     v_op1, v_op2 = st.tabs(["🛒 Nueva Venta / Reserva", "📊 Rendimiento de Vendedores"])
     
     with v_op1:
+        # LLAMADAS A LA BASE DE DATOS CORREGIDAS
+        equipos_disp = supabase.table("inventario").select("*").eq("estado", "Disponible").execute().data or []
+        clientes_list = traer_clientes()
         vendedores_list = supabase.table("vendedores").select("*").execute().data or []
         
-        if not equipos_disp: st.warning("No hay equipos en stock para operar.")
+        if not equipos_disp: 
+            st.warning("No hay equipos en stock para operar.")
         else:
             st.subheader("1. Selección de Equipos en Lote")
-            # Se agrega el color al nombre del equipo en el buscador
             opciones_eq = {f"{e['modelo']} {e.get('color', '')} ({e.get('bateria','100%')}) - IMEI: {e['imei']} | {formato_dolares(e['precio_minorista'])}": e for e in equipos_disp}
             seleccionados_keys = st.multiselect("Selecciona los iPhones de la operación:", list(opciones_eq.keys()))
             
@@ -354,7 +348,6 @@ with tab_venta:
                 comision_calculada = (subtotal_minorista - descuento_total) - subtotal_supermayo
                 ganancia_local = subtotal_supermayo - costo_total_lote
                 
-                # Botonera de acciones
                 b_acc1, b_acc2, b_acc3 = st.columns(3)
                 
                 with b_acc1:
@@ -370,14 +363,11 @@ with tab_venta:
                                 supabase.table("clientes_ventas").insert({"nombre": cliente_final, "contacto": tel_cli, "tipo": tipo_categoria}).execute()
                             
                             ids_lote = [int(e['id']) for e in equipos_seleccionados]
-                            # Agregamos color al string del historial
                             nombres_lote = ", ".join([f"{e['modelo']} {e.get('color', '')}" for e in equipos_seleccionados])
                             
-                            # Congelamos stock
                             for eq_id in ids_lote:
                                 supabase.table("inventario").update({"estado": "Reservado"}).eq("id", eq_id).execute()
                             
-                            # Guardamos en pedidos
                             supabase.table("pedidos").insert({
                                 "cliente_nombre": cliente_final, "vendedor_nombre": sel_vendedor,
                                 "equipos_reservados": nombres_lote, "ids_equipos": ids_lote, "total_pedido": total_operacion
@@ -421,7 +411,6 @@ with tab_venta:
                         else: st.error("Faltan campos obligatorios.")
 
     with v_op2:
-        # --- PANEL DE RENDIMIENTO INTERNO POR FECHAS ---
         st.subheader("📊 Producción de Vendedores")
         c_fe1, c_fe2 = st.columns(2)
         f_v_desde = c_fe1.date_input("Filtrar desde:", datetime.date.today().replace(day=1), key="fvd")
@@ -430,7 +419,6 @@ with tab_venta:
         res_v_perf = supabase.table("ventas").select("*").gte("fecha_venta", str(f_v_desde)).lte("fecha_venta", str(f_v_hasta)).execute()
         if res_v_perf.data:
             df_perf = pd.DataFrame(res_v_perf.data)
-            
             perf_resumen = df_perf.groupby("vendedor_nombre").agg({"precio_final_venta":"sum", "comision_vendedor":"sum", "id":"count"}).reset_index()
             perf_resumen.columns = ["Vendedor", "Total Facturado (U$S)", "Comisiones Generadas (U$S)", "Equipos Vendidos"]
             
