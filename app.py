@@ -112,7 +112,7 @@ with st.sidebar:
         st.subheader("🔒 Acceso Dueño")
         clave = st.text_input("Contraseña", type="password")
         if st.button("Desbloquear Sistema"):
-            if clave == "admin123": # <--- CAMBIÁ TU CONTRASEÑA ACÁ
+            if clave == "admin123": # <--- CAMBIÁ TU CONTRASEÑA ACÁ SI QUERÉS
                 st.session_state.admin_auth = True
                 st.rerun()
             else:
@@ -188,7 +188,6 @@ with tab_stock:
         df_stock = pd.DataFrame(res_stock.data)
         
         if es_admin:
-            # Vista Admin: Ve todo
             st.dataframe(df_stock[["id", "modelo", "bateria", "imei", "condicion", "costo_total", "precio_minorista"]], use_container_width=True, hide_index=True)
             
             st.markdown("### ✏️ Editar Equipo")
@@ -212,7 +211,6 @@ with tab_stock:
                         st.success("Actualizado.")
                         st.rerun()
         else:
-            # Vista Vendedor: Solo ve datos de venta y no puede editar
             df_vendedor = df_stock[["modelo", "condicion", "bateria", "imei", "precio_minorista"]].copy()
             df_vendedor["precio_minorista"] = df_vendedor["precio_minorista"].apply(formato_dolares)
             df_vendedor.columns = ["Modelo", "Condición", "Batería", "IMEI", "Precio Público (U$S)"]
@@ -234,7 +232,7 @@ with tab_venta:
         st.warning("No hay equipos en stock.")
     else:
         st.subheader("1. Selección de Equipos")
-        opciones_eq = {f"{e['modelo']} ({e['bateria']}) - IMEI: {e['imei']} - {formato_dolares(e['precio_minorista'])}": e for e in equipos_disp}
+        opciones_eq = {f"{e['modelo']} ({e.get('bateria', '100%')}) - IMEI: {e['imei']} - {formato_dolares(e['precio_minorista'])}": e for e in equipos_disp}
         seleccionados_keys = st.multiselect("Buscá y seleccioná uno o varios equipos:", list(opciones_eq.keys()))
         
         if seleccionados_keys:
@@ -256,7 +254,12 @@ with tab_venta:
                     cliente_final = st.text_input("Nombre del Nuevo Cliente:")
                     tel_cli = st.text_input("WhatsApp (Ej: 381...):")
                     tipo_categoria = st.selectbox("Categoría:", ["Minorista", "Mayorista"])
-                sel_vendedor = st.selectbox("Vendedor a cargo:", [v["nombre"] for v in vendedores_list])
+                
+                sel_vendedor = ""
+                if vendedores_list:
+                    sel_vendedor = st.selectbox("Vendedor a cargo:", [v["nombre"] for v in vendedores_list])
+                else:
+                    st.warning("Agregá al menos un vendedor en la pestaña 'Directorio' (Modo Admin).")
                 
                 st.subheader("3. Descuentos Aplicados")
                 descuento_manual = st.number_input("Descuento Manual (U$S)", min_value=0.0, step=10.0)
@@ -289,10 +292,10 @@ with tab_venta:
             comision_calculada = (subtotal_minorista - descuento_total) - subtotal_supermayo
             ganancia_local = subtotal_supermayo - costo_total_lote
 
-            # El Vendedor ve su comisión, pero solo el Admin ve la ganancia del local
             st.write("### 🧮 Resumen Financiero")
             res_col1, res_col2 = st.columns(2)
-            res_col1.metric(f"Comisión calculada para {sel_vendedor}", formato_dolares(comision_calculada))
+            if sel_vendedor:
+                res_col1.metric(f"Comisión calculada para {sel_vendedor}", formato_dolares(comision_calculada))
             if es_admin:
                 res_col2.metric("Ganancia Neta del Local (Modo Admin)", formato_dolares(ganancia_local))
             else:
@@ -307,7 +310,7 @@ with tab_venta:
                     st.download_button("Descargar Presupuesto Oficial", pdf, f"Presupuesto_{cliente_final}.pdf", "application/pdf", use_container_width=True)
             with b2:
                 if st.button("✅ REGISTRAR VENTA OFICIAL", type="primary", use_container_width=True):
-                    if cliente_final:
+                    if cliente_final and sel_vendedor:
                         if tipo_cli == "Nuevo":
                             supabase.table("clientes_ventas").insert({"nombre": cliente_final, "contacto": tel_cli, "tipo": tipo_categoria}).execute()
 
@@ -336,7 +339,7 @@ with tab_venta:
                         supabase.table("ventas").insert(nueva_venta).execute()
                         st.success("🎉 ¡Venta registrada exitosamente!")
                     else:
-                        st.error("Falta nombre del cliente.")
+                        st.error("Falta nombre del cliente o asignar un vendedor.")
 
 # ----------------------------------------------------
 # 3. HISTORIAL
@@ -352,7 +355,7 @@ with tab_historial:
         st.dataframe(df_v_show, use_container_width=True, hide_index=True)
 
 # ----------------------------------------------------
-# 4. FINANZAS Y COMISIONES (BLOQUEADO PARA VENDEDORES)
+# 4. FINANZAS Y COMISIONES (BLOQUEADO)
 # ----------------------------------------------------
 with tab_finanzas:
     if es_admin:
@@ -381,9 +384,13 @@ with tab_clientes:
         df_c["Deuda"] = df_c["efectivo_a_cobrar"] - df_c["monto_abonado"]
         
         resumen_cli = df_c.groupby("cliente_nombre").agg({"efectivo_a_cobrar":"sum", "monto_abonado":"sum", "Deuda":"sum"}).reset_index()
+        
+        # ACÁ ESTABA EL ERROR: Cambiamos el nombre a "Deuda Pendiente" para que sea visible
         resumen_cli.columns = ["Cliente", "Total Comprado", "Total Pagado", "Deuda Pendiente"]
         
-        deudores = resumen_cli[resumen_cli["Deuda"] > 0].copy()
+        # Filtramos utilizando el NUEVO nombre de la columna para evitar el KeyError
+        deudores = resumen_cli[resumen_cli["Deuda Pendiente"] > 0].copy()
+        
         if not deudores.empty:
             st.error("🚨 **Clientes con saldo pendiente de pago:**")
             deudores["Deuda Pendiente"] = deudores["Deuda Pendiente"].apply(formato_dolares)
@@ -399,7 +406,7 @@ with tab_clientes:
         st.dataframe(resumen_cli, hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------
-# 6. DIRECTORIO (BLOQUEADO PARA VENDEDORES)
+# 6. DIRECTORIO (BLOQUEADO)
 # ----------------------------------------------------
 with tab_directorio:
     if es_admin:
