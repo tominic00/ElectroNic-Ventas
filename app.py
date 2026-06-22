@@ -33,14 +33,15 @@ LISTA_MODELOS_IPHONE = [
     "iPhone 16 256GB", "iPhone 16 128GB",
     "iPhone 15 Pro Max 512GB", "iPhone 15 Pro Max 256GB",
     "iPhone 15 Pro 256GB", "iPhone 15 Pro 128GB",
-    "iPhone 15 Plus 128GB", "iPhone 15 128GB",
+    "iPhone 15 Plus 128GB", "iPhone 15 128GB","iPhone 15 256GB",
     "iPhone 14 Pro Max 256GB", "iPhone 14 Pro Max 128GB",
-    "iPhone 14 Pro 128GB", "iPhone 14 Plus 128GB",
-    "iPhone 14 128GB", "iPhone 13 Pro Max 128GB",
-    "iPhone 13 Pro 128GB", "iPhone 13 128GB",
-    "iPhone 12 Pro Max 128GB", "iPhone 12 Pro 128GB",
-    "iPhone 12 128GB", "iPhone 12 64GB",
+    "iPhone 14 Pro 128GB", "iPhone 14 Plus 128GB","iPhone 14 Pro 256GB",
+    "iPhone 14 128GB", "iPhone 14 256GB", "iPhone 13 Pro Max 128GB","iPhone 13 Pro Max 256GB",
+    "iPhone 13 Pro 128GB", "iPhone 13 128GB", "iPhone 13 256GB", "iPhone 13 Pro 256GB",
+    "iPhone 12 Pro Max 128GB", "iPhone 12 Pro 128GB", "iPhone 12 Pro 256GB","iPhone 12 Pro Max 256GB",
+    "iPhone 12 128GB", "iPhone 12 64GB","iPhone 12 256GB", "iPhone 11 Pro Max 128GB", "iPhone 11 Pro Max 256GB",
     "iPhone 11 Pro Max 64GB", "iPhone 11 Pro 64GB",
+    "iphone 11 256GB", "iPhone 11 Pro 128GB", "iPhone 11 Pro 256GB",
     "iPhone 11 128GB", "iPhone 11 64GB"
 ]
 
