@@ -47,7 +47,7 @@ def formato_telefono(tel):
 def obtener_dolar_blue():
     try:
         r = requests.get("https://dolarapi.com/v1/dolares/blue", timeout=5)
-        return r.json()["compra"], r.json()["venta"]
+        return float(r.json()["compra"]), float(r.json()["venta"])
     except:
         return 1000.0, 1000.0 
 
@@ -285,7 +285,7 @@ with tab_stock:
     else: st.warning("Sin stock disponible.")
 
 # ----------------------------------------------------
-# 2. OPERACIONES (VENTAS Y PEDIDOS)
+# 2. OPERACIONES (VENTAS Y PEDIDOS CON CAJA BIMONETARIA)
 # ----------------------------------------------------
 with tab_venta:
     st.header("🤝 Cerrar Operación en Mostrador")
@@ -327,15 +327,30 @@ with tab_venta:
                     val_canje = st.number_input("Cotización Usado (U$S)", min_value=0.0)
 
             total_op = float(sub_mino - desc_total - val_canje)
+            
             st.markdown("---")
-            st.subheader(f"Total Neto Operación: {formato_dolares(total_op)}")
+            st.subheader("5. Cierre de Caja (Calculadora Bimonetaria)")
+            st.metric("TOTAL NETO A PAGAR POR EL CLIENTE", formato_dolares(total_op))
+            
+            st.write("💳 **¿Cómo abona el cliente en este momento?**")
+            col_p1, col_p2, col_p3 = st.columns(3)
+            
+            pago_usd = col_p1.number_input("Entrega en Dólares billete (U$S)", min_value=0.0, step=10.0, value=float(total_op))
+            pago_ars = col_p2.number_input("Entrega en Pesos (ARS)", min_value=0.0, step=1000.0, value=0.0)
+            
+            equiv_usd = pago_ars / dolar_venta if dolar_venta > 0 else 0.0
+            monto_abonado_total = pago_usd + equiv_usd
+            
+            with col_p3:
+                st.info(f"Cotización Dólar Venta: **${dolar_venta:,.2f}**\n\nLos pesos equivalen a: **{formato_dolares(equiv_usd)}**")
+                st.success(f"TOTAL REAL INGRESADO: **{formato_dolares(monto_abonado_total)}**")
             
             comision = float((sub_mino - desc_total) - sub_super)
             ganancia = float(sub_super - cst_lote)
             
             b1, b2, b3 = st.columns(3)
             with b1:
-                if st.button("📄 GENERAR PDF"):
+                if st.button("📄 GENERAR PDF", use_container_width=True):
                     pdf = generar_presupuesto_pdf(cliente_final, eq_lote, desc_total, f"{canje_mod} {canje_col}", val_canje, total_op)
                     st.download_button("Descargar Presupuesto", pdf, f"Presupuesto_{cliente_final}.pdf", "application/pdf")
             
@@ -381,12 +396,13 @@ with tab_venta:
                             "equipo_vendido": str(str_vendido),
                             "precio_final_venta": float(sub_mino - desc_total), "descuento_aplicado": float(desc_total), 
                             "equipo_recibido_canje": str(canje_mod) if hay_canje else "Ninguno", "cotizacion_canje": float(val_canje), 
-                            "monto_abonado": float(total_op), "comision_vendedor": float(comision), 
+                            "monto_abonado": float(monto_abonado_total), "comision_vendedor": float(comision), 
                             "ganancia_neta_local": float(ganancia), "comision_pagada": False,
-                            "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(total_op)}] if total_op > 0 else []
+                            "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(monto_abonado_total)}] if monto_abonado_total > 0 else []
                         }).execute()
-                        st.success("🎉 Venta confirmada.")
+                        st.success("🎉 Venta confirmada con cálculo de caja correcto.")
                         st.rerun()
+                    else: st.error("Faltan campos obligatorios.")
 
 # ----------------------------------------------------
 # 3. GESTIÓN DE PEDIDOS ACTIVOS
@@ -404,7 +420,7 @@ with tab_pedidos:
         st.dataframe(df_p_show, use_container_width=True, hide_index=True)
         
         st.markdown("---")
-        st.subheader("⚡ Acciones del Pedido Seleccionado")
+        st.subheader("⚡ Despachar o Emitir Presupuesto con Deuda")
         id_p_facturar = st.selectbox("Seleccioná el N° de Pedido:", df_p["id"].tolist())
         
         if id_p_facturar:
@@ -416,6 +432,18 @@ with tab_pedidos:
                 for v in res_v_cli.data:
                     deuda_anterior += max(0.0, float(v["precio_final_venta"]) - float(v["monto_abonado"]))
             
+            # --- CAJA BIMONETARIA EN DESPACHO DE PEDIDOS ---
+            st.write(f"Total a cobrar por este pedido: **{formato_dolares(p_sel['total_pedido'])}**")
+            cp_p1, cp_p2, cp_p3 = st.columns(3)
+            p_pago_usd = cp_p1.number_input("Pago en Dólares (U$S)", min_value=0.0, step=10.0, value=float(p_sel['total_pedido']), key="pp_usd")
+            p_pago_ars = cp_p2.number_input("Pago en Pesos (ARS)", min_value=0.0, step=1000.0, value=0.0, key="pp_ars")
+            p_equiv_usd = p_pago_ars / dolar_venta if dolar_venta > 0 else 0
+            p_monto_abonado_total = p_pago_usd + p_equiv_usd
+            
+            with cp_p3:
+                st.info(f"Equivalente ARS: {formato_dolares(p_equiv_usd)}")
+                st.success(f"Total ingresado real: {formato_dolares(p_monto_abonado_total)}")
+                
             col_bp1, col_b2, col_b3 = st.columns(3)
             
             with col_bp1:
@@ -451,10 +479,10 @@ with tab_pedidos:
                     supabase.table("ventas").insert({
                         "cliente_nombre": str(p_sel["cliente_nombre"]), "vendedor_nombre": str(p_sel["vendedor_nombre"]),
                         "equipo_vendido": f"DESPACHO PEDIDO #{id_p_facturar}: {p_sel['equipos_reservados']}",
-                        "precio_final_venta": float(p_sel["total_pedido"]) + c_val, "monto_abonado": float(p_sel["total_pedido"]),
+                        "precio_final_venta": float(p_sel["total_pedido"]) + c_val, "monto_abonado": float(p_monto_abonado_total),
                         "comision_vendedor": float(p_sel.get("comision_vendedor", 0.0)), "ganancia_neta_local": float(p_sel.get("ganancia_neta_local", 0.0)),
                         "comision_pagada": False, "equipo_recibido_canje": str(c_mod), "cotizacion_canje": c_val, "canje_imei": str(c_imei), "canje_bateria": str(c_bat),
-                        "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(p_sel["total_pedido"])}] if float(p_sel["total_pedido"]) > 0 else []
+                        "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(p_monto_abonado_total)}] if p_monto_abonado_total > 0 else []
                     }).execute()
                     
                     st.success(f"🎉 ¡Pedido N° {id_p_facturar} despachado con éxito!")
@@ -471,7 +499,7 @@ with tab_pedidos:
         st.success("✨ No hay ningún pedido pendiente reteniendo stock. Todo el local está libre.")
 
 # ----------------------------------------------------
-# 4. HISTORIAL DE VENTAS CON REINTEGRO DE STOCK MEJORADO
+# 4. HISTORIAL DE VENTAS CON REINTEGRO Y PURGA DE COMISIONES
 # ----------------------------------------------------
 with tab_historial:
     st.header("📜 Historial de Ventas")
@@ -484,11 +512,10 @@ with tab_historial:
         df_v_show.columns = ["ID Venta", "Fecha", "Equipos Vendidos e IMEIs", "Precio Venta", "Monto Abonado", "Cliente", "Vendedor"]
         st.dataframe(df_v_show, use_container_width=True, hide_index=True)
 
-        # --- ANULAR Y ELIMINAR VENTA DEL HISTORIAL ---
         if es_admin:
             st.markdown("---")
             st.subheader("⚙️ Panel Administrativo de Anulación de Ventas")
-            st.write("Si eliminas una venta, se borrará su registro de caja y comisiones de forma definitiva.")
+            st.write("Si eliminas una venta, **se borrará su registro de caja y comisiones de forma definitiva** instantáneamente.")
             id_venta_borrar = st.selectbox("Seleccioná el ID de la venta que deseas anular y borrar:", df_v["id"].tolist(), key="sel_id_v_del")
             
             reintegrar_stock = st.checkbox("🔄 Reintegrar automáticamente los iPhones de esta venta de vuelta al Inventario (cambiar a Disponible)", value=True, key="reintegrar_stock")
@@ -502,8 +529,10 @@ with tab_historial:
                         supabase.table("inventario").update({"estado": "Disponible"}).in_("imei", lista_imeis).execute()
                         st.info(f"Se reingresaron {len(lista_imeis)} equipos al mostrador.")
                 
+                # Al eliminar la fila de 'ventas', las comisiones desaparecen para siempre del sistema.
                 supabase.table("ventas").delete().eq("id", int(id_venta_borrar)).execute()
-                st.success(f"Venta #{id_venta_borrar} anulada y eliminada del historial con éxito.")
+                st.cache_data.clear() # Forzamos recarga de memoria
+                st.success(f"Venta #{id_venta_borrar} anulada. Las comisiones asociadas ya no generarán deuda al local.")
                 st.rerun()
     else: st.info("Sin registros.")
 
@@ -559,7 +588,6 @@ with tab_clientes:
     
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        # --- PANEL DE EDICIÓN DE CLIENTE RESTAURADO ---
         st.subheader("✏️ Modificar Ficha de Cliente")
         if clientes_list:
             dic_cli = {c["nombre"]: c for c in clientes_list}
@@ -574,14 +602,13 @@ with tab_clientes:
             
             if st.button("💾 Guardar Cambios de Cliente", use_container_width=True):
                 supabase.table("clientes_ventas").update({
-                    "nombre": upd_cli_nom, 
-                    "contacto": upd_cli_tel, 
-                    "tipo": upd_cli_tipo
+                    "nombre": str(upd_cli_nom), 
+                    "contacto": str(upd_cli_tel), 
+                    "tipo": str(upd_cli_tipo)
                 }).eq("id", cli_data["id"]).execute()
                 
-                # Sincronizamos las ventas para no perder la deuda si le cambia el nombre
                 if upd_cli_nom != cli_data["nombre"]:
-                    supabase.table("ventas").update({"cliente_nombre": upd_cli_nom}).eq("cliente_nombre", cli_data["nombre"]).execute()
+                    supabase.table("ventas").update({"cliente_nombre": str(upd_cli_nom)}).eq("cliente_nombre", cli_data["nombre"]).execute()
                 
                 st.success("Ficha de cliente actualizada.")
                 st.rerun()
@@ -599,13 +626,21 @@ with tab_clientes:
                 opc_d = {f"Venta #{v['id']} - {v['cliente_nombre']} (Debe: {formato_dolares(v['Deuda'])})": v for _, v in df_deudoras.iterrows()}
                 sel_v = st.selectbox("Cuenta a saldar:", list(opc_d.keys()))
                 v_obj = opc_d[sel_v]
-                n_cobro = st.number_input("Monto (U$S)", max_value=float(v_obj["Deuda"]), min_value=0.0)
                 
-                if st.button("Registrar Cobro", type="primary"):
+                c_c1, c_c2 = st.columns(2)
+                n_cobro_usd = c_c1.number_input("Pago en U$S", min_value=0.0, max_value=float(v_obj["Deuda"]), step=10.0)
+                n_cobro_ars = c_c2.number_input("Pago en ARS", min_value=0.0, step=1000.0)
+                
+                eq_cobro_usd = n_cobro_ars / dolar_venta if dolar_venta > 0 else 0
+                n_cobro_total = n_cobro_usd + eq_cobro_usd
+                
+                st.info(f"Total a imputar: **{formato_dolares(n_cobro_total)}**")
+                
+                if st.button("Registrar Cobro", type="primary", use_container_width=True):
                     h_p = v_obj.get("historial_pagos") or []
-                    h_p.append({"fecha": str(datetime.date.today()), "monto": float(n_cobro)})
+                    h_p.append({"fecha": str(datetime.date.today()), "monto": float(n_cobro_total)})
                     supabase.table("ventas").update({
-                        "monto_abonado": float(v_obj["monto_abonado"]) + float(n_cobro), 
+                        "monto_abonado": float(v_obj["monto_abonado"]) + float(n_cobro_total), 
                         "historial_pagos": h_p
                     }).eq("id", int(v_obj["id"])).execute()
                     st.success("Cobrado y registrado en la cuenta corriente.")
@@ -640,7 +675,6 @@ with tab_directorio:
                     st.rerun()
                     
         with col_v2:
-            # --- PANEL DE GESTIÓN Y BAJA DE VENDEDORES RESTAURADO ---
             st.subheader("🗑️ Lista de Vendedores Activos")
             v_list = supabase.table("vendedores").select("*").execute().data
             if v_list:
@@ -648,7 +682,7 @@ with tab_directorio:
                     c_list1, c_list2 = st.columns([3, 1])
                     c_list1.write(f"🧑‍💼 **{v['nombre']}**")
                     if c_list2.button("Eliminar", key=f"del_vend_{v['id']}"):
-                        supabase.table("vendedores").delete().eq("id", v['id']).execute()
+                        supabase.table("vendedores").delete().eq("id", int(v['id'])).execute()
                         st.warning(f"Vendedor eliminado.")
                         st.rerun()
             else:
