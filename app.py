@@ -22,9 +22,6 @@ except Exception as e:
 # ==============================================================================
 # INICIALIZACIÓN DE SESIÓN Y SEGURIDAD
 # ==============================================================================
-if "orden_reciente" not in st.session_state:
-    st.session_state.orden_reciente = None
-
 if "admin_auth" not in st.session_state:
     st.session_state.admin_auth = False
 
@@ -101,18 +98,17 @@ def generar_presupuesto_pdf(cliente, equipos_nombres, subtotal, descuento, canje
     return buffer
 
 # ==============================================================================
-# BARRA LATERAL (CON MÓDULO DE SEGURIDAD)
+# BARRA LATERAL
 # ==============================================================================
 with st.sidebar:
     st.title("Electronic Ventas")
     
-    # --- MÓDULO DE LOGIN ---
     st.markdown("---")
     if not es_admin:
         st.subheader("🔒 Acceso Dueño")
         clave = st.text_input("Contraseña", type="password")
         if st.button("Desbloquear Sistema"):
-            if clave == "admin123": # <--- CAMBIÁ TU CONTRASEÑA ACÁ SI QUERÉS
+            if clave == "admin123":
                 st.session_state.admin_auth = True
                 st.rerun()
             else:
@@ -142,7 +138,7 @@ st.title("🍏 Electronic — ERP de Ventas e Importación")
 st.markdown("---")
 
 tab_stock, tab_venta, tab_historial, tab_finanzas, tab_clientes, tab_directorio = st.tabs([
-    "📦 Inventario", "🤝 Venta y Canje", "📋 Historial", "💰 Finanzas (Candado)", "👤 Clientes y Deudas", "👥 Directorio (Candado)"
+    "📦 Inventario", "🤝 Venta y Canje", "📋 Historial", "💰 Finanzas", "👤 Clientes y Deudas", "👥 Directorio"
 ])
 
 # ----------------------------------------------------
@@ -157,7 +153,11 @@ with tab_stock:
             mod_modelo = st.text_input("Modelo", placeholder="Ej: iPhone 15 Pro Max")
             mod_imei = st.text_input("IMEI")
             mod_condicion = st.selectbox("Condición", ["Sellado", "Usado", "CPO"])
-            mod_bateria = st.text_input("Batería %", value="100%")
+            if mod_condicion == "Sellado":
+                mod_bateria = "100%"
+                st.info("Batería fijada al 100% por ser Sellado.")
+            else:
+                mod_bateria = st.text_input("Batería %", value="100%")
         with col2:
             cst_equipo = st.number_input("Costo Equipo (U$S)", min_value=0.0, step=10.0)
             cst_carga = st.number_input("Carga (EEUU-TUC)", min_value=0.0, step=5.0)
@@ -188,27 +188,40 @@ with tab_stock:
         df_stock = pd.DataFrame(res_stock.data)
         
         if es_admin:
-            st.dataframe(df_stock[["id", "modelo", "bateria", "imei", "condicion", "costo_total", "precio_minorista"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_stock[["id", "modelo", "condicion", "bateria", "imei", "costo_total", "precio_minorista"]], use_container_width=True, hide_index=True)
             
-            st.markdown("### ✏️ Editar Equipo")
+            st.markdown("### ✏️ Edición Avanzada de Stock")
             id_editar = st.selectbox("Seleccioná el ID del equipo a modificar:", df_stock["id"].tolist())
             if id_editar:
                 eq_ed = df_stock[df_stock["id"] == id_editar].iloc[0]
                 c_ed1, c_ed2, c_ed3 = st.columns(3)
+                
                 with c_ed1:
-                    upd_mod = st.text_input("Modificar Modelo", value=eq_ed["modelo"], key="upd_mod")
-                    upd_bat = st.text_input("Modificar Batería", value=eq_ed.get("bateria", "100%"), key="upd_bat")
+                    upd_mod = st.text_input("Modelo", value=eq_ed["modelo"], key="ue_m")
+                    upd_imei = st.text_input("IMEI", value=eq_ed["imei"], key="ue_i")
+                    idx_cond = ["Sellado", "Usado", "CPO"].index(eq_ed["condicion"]) if eq_ed["condicion"] in ["Sellado", "Usado", "CPO"] else 0
+                    upd_cond = st.selectbox("Condición", ["Sellado", "Usado", "CPO"], index=idx_cond, key="ue_c")
+                    if upd_cond == "Sellado":
+                        upd_bat = "100%"
+                    else:
+                        upd_bat = st.text_input("Batería %", value=eq_ed.get("bateria", "100%"), key="ue_b")
                 with c_ed2:
-                    upd_pr_mino = st.number_input("Modificar Precio Minorista", value=float(eq_ed["precio_minorista"]), key="upd_prm")
-                    upd_pr_super = st.number_input("Modificar Precio Super Mayo", value=float(eq_ed["precio_super_mayorista"]), key="upd_prs")
+                    upd_cst_eq = st.number_input("Costo Eq", value=float(eq_ed["costo_equipo"]), key="ue_ce")
+                    upd_cst_cg = st.number_input("Carga", value=float(eq_ed["costo_importacion"]), key="ue_cc")
+                    upd_cst_fi = st.number_input("Interés", value=float(eq_ed["costo_financiero"]), key="ue_cf")
                 with c_ed3:
+                    upd_prs = st.number_input("Precio Super Mayo", value=float(eq_ed["precio_super_mayorista"]), key="ue_ps")
+                    upd_prmayo = st.number_input("Precio Mayorista", value=float(eq_ed["precio_mayorista"]), key="ue_pma")
+                    upd_prmino = st.number_input("Precio Minorista", value=float(eq_ed["precio_minorista"]), key="ue_pmi")
+                    
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("💾 Guardar Cambios del Equipo", type="primary"):
+                    if st.button("💾 Guardar Cambios", type="primary"):
                         supabase.table("inventario").update({
-                            "modelo": upd_mod, "bateria": upd_bat, 
-                            "precio_minorista": upd_pr_mino, "precio_super_mayorista": upd_pr_super
+                            "modelo": upd_mod, "imei": upd_imei, "condicion": upd_cond, "bateria": upd_bat,
+                            "costo_equipo": upd_cst_eq, "costo_importacion": upd_cst_cg, "costo_financiero": upd_cst_fi,
+                            "precio_super_mayorista": upd_prs, "precio_mayorista": upd_prmayo, "precio_minorista": upd_prmino
                         }).eq("id", int(id_editar)).execute()
-                        st.success("Actualizado.")
+                        st.success("Equipo actualizado.")
                         st.rerun()
         else:
             df_vendedor = df_stock[["modelo", "condicion", "bateria", "imei", "precio_minorista"]].copy()
@@ -259,7 +272,7 @@ with tab_venta:
                 if vendedores_list:
                     sel_vendedor = st.selectbox("Vendedor a cargo:", [v["nombre"] for v in vendedores_list])
                 else:
-                    st.warning("Agregá al menos un vendedor en la pestaña 'Directorio' (Modo Admin).")
+                    st.warning("Agregá al menos un vendedor en la pestaña 'Directorio'.")
                 
                 st.subheader("3. Descuentos Aplicados")
                 descuento_manual = st.number_input("Descuento Manual (U$S)", min_value=0.0, step=10.0)
@@ -301,7 +314,6 @@ with tab_venta:
             else:
                 res_col2.info("🔒 Ganancia del local oculta en Modo Vendedor.")
 
-            st.markdown("<br>", unsafe_allow_html=True)
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("📄 EMITIR PRESUPUESTO (PDF)", use_container_width=True):
@@ -327,6 +339,11 @@ with tab_venta:
                             }
                             supabase.table("inventario").insert(eq_canje).execute()
 
+                        # Iniciar historial de pagos
+                        historial_p = []
+                        if monto_abonado > 0:
+                            historial_p.append({"fecha": str(datetime.date.today()), "monto": float(monto_abonado)})
+
                         nueva_venta = {
                             "cliente_nombre": cliente_final, "vendedor_nombre": sel_vendedor,
                             "equipo_vendido": nombres_str, "precio_final_venta": subtotal_minorista - descuento_total,
@@ -334,7 +351,9 @@ with tab_venta:
                             "equipo_recibido_canje": canje_mod if hay_canje else "Ninguno",
                             "canje_imei": canje_imei, "canje_bateria": canje_bat, "cotizacion_canje": valor_canje,
                             "monto_abonado": monto_abonado,
-                            "comision_vendedor": comision_calculada, "ganancia_neta_local": ganancia_local
+                            "historial_pagos": historial_p,
+                            "comision_vendedor": comision_calculada, "ganancia_neta_local": ganancia_local,
+                            "comision_pagada": False
                         }
                         supabase.table("ventas").insert(nueva_venta).execute()
                         st.success("🎉 ¡Venta registrada exitosamente!")
@@ -355,58 +374,144 @@ with tab_historial:
         st.dataframe(df_v_show, use_container_width=True, hide_index=True)
 
 # ----------------------------------------------------
-# 4. FINANZAS Y COMISIONES (BLOQUEADO)
+# 4. FINANZAS Y COMISIONES (ADMIN)
 # ----------------------------------------------------
 with tab_finanzas:
     if es_admin:
         st.header("💰 Finanzas, Caja y Liquidaciones")
-        res_f = supabase.table("ventas").select("*").execute()
+        
+        # Filtros de fecha
+        st.subheader("📅 Filtro de Fechas")
+        f_inicio, f_fin = st.columns(2)
+        fecha_desde = f_inicio.date_input("Desde:", datetime.date.today().replace(day=1))
+        fecha_hasta = f_fin.date_input("Hasta:", datetime.date.today())
+        
+        res_f = supabase.table("ventas").select("*").gte("fecha_venta", str(fecha_desde)).lte("fecha_venta", str(fecha_hasta)).execute()
+        
         if res_f.data:
             df_f = pd.DataFrame(res_f.data)
-            st.metric("Ganancia Neta Pura del Local", formato_dolares(df_f["ganancia_neta_local"].sum()))
+            df_f["comision_pagada"] = df_f["comision_pagada"].fillna(False)
+            
+            st.metric("Ganancia Neta Pura del Local (en este período)", formato_dolares(df_f["ganancia_neta_local"].sum()))
             st.markdown("---")
+            
             st.subheader("🧑‍💼 Comisiones a Pagar por Vendedor")
-            liq = df_f.groupby("vendedor_nombre")["comision_vendedor"].sum().reset_index()
-            liq.columns = ["Vendedor", "Comisión Total Acumulada"]
-            liq["Comisión Total Acumulada"] = liq["Comisión Total Acumulada"].apply(formato_dolares)
-            st.dataframe(liq, hide_index=True, use_container_width=True)
+            
+            df_pendientes = df_f[df_f["comision_pagada"] == False]
+            if not df_pendientes.empty:
+                liq = df_pendientes.groupby("vendedor_nombre")["comision_vendedor"].sum().reset_index()
+                liq.columns = ["Vendedor", "Comisión Pendiente a Pagar"]
+                
+                col_liq1, col_liq2 = st.columns(2)
+                with col_liq1:
+                    st.dataframe(liq.style.format({"Comisión Pendiente a Pagar": "${:,.2f}"}), hide_index=True, use_container_width=True)
+                with col_liq2:
+                    st.write("✅ **Liquidar Comisiones**")
+                    vend_a_pagar = st.selectbox("Seleccionar Vendedor a Liquidar:", liq["Vendedor"].tolist())
+                    if st.button("Marcar Comisiones Pendientes como Pagadas", type="primary"):
+                        # Marcar ventas pendientes de este vendedor como pagadas
+                        ids_a_pagar = df_pendientes[df_pendientes["vendedor_nombre"] == vend_a_pagar]["id"].tolist()
+                        for id_v in ids_a_pagar:
+                            supabase.table("ventas").update({"comision_pagada": True, "fecha_pago_comision": str(datetime.date.today())}).eq("id", id_v).execute()
+                        st.success(f"¡Comisiones de {vend_a_pagar} liquidadas correctamente!")
+                        st.rerun()
+            else:
+                st.success("✅ Todas las comisiones de este período están pagadas.")
+                
+            st.markdown("---")
+            st.subheader("📚 Historial de Comisiones ya Pagadas")
+            df_pagadas = df_f[df_f["comision_pagada"] == True]
+            if not df_pagadas.empty:
+                df_hist_comis = df_pagadas[["fecha_pago_comision", "vendedor_nombre", "equipo_vendido", "comision_vendedor"]].copy()
+                df_hist_comis["comision_vendedor"] = df_hist_comis["comision_vendedor"].apply(formato_dolares)
+                df_hist_comis.columns = ["Fecha de Pago", "Vendedor", "Venta Originaria", "Monto"]
+                st.dataframe(df_hist_comis, hide_index=True, use_container_width=True)
+            else:
+                st.info("Aún no hay registros de comisiones pagadas en este período.")
+
+        else:
+            st.info("No hay ventas registradas en el rango de fechas seleccionado.")
     else:
-        st.error("🔒 **Acceso Denegado:** Esta pestaña contiene información financiera exclusiva del dueño del local. Por favor, ingresá la contraseña de administrador en la barra lateral para desbloquearla.")
+        st.error("🔒 **Acceso Denegado:** Esta pestaña requiere permisos de Administrador.")
 
 # ----------------------------------------------------
 # 5. CLIENTES Y DEUDAS
 # ----------------------------------------------------
 with tab_clientes:
-    st.header("👤 Estado de Clientes y Deudores")
-    res_vc = supabase.table("ventas").select("cliente_nombre", "efectivo_a_cobrar", "monto_abonado").execute()
-    if res_vc.data:
-        df_c = pd.DataFrame(res_vc.data)
-        df_c["Deuda"] = df_c["efectivo_a_cobrar"] - df_c["monto_abonado"]
-        
-        resumen_cli = df_c.groupby("cliente_nombre").agg({"efectivo_a_cobrar":"sum", "monto_abonado":"sum", "Deuda":"sum"}).reset_index()
-        
-        # ACÁ ESTABA EL ERROR: Cambiamos el nombre a "Deuda Pendiente" para que sea visible
+    st.header("👤 Estado de Clientes, Deudas y Cobranzas")
+    
+    clientes_list = supabase.table("clientes_ventas").select("*").execute().data or []
+    
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.subheader("✏️ Editar Cliente Existente")
+        if clientes_list:
+            dic_cli = {c["nombre"]: c for c in clientes_list}
+            sel_cli_ed = st.selectbox("Seleccionar Cliente:", list(dic_cli.keys()))
+            cli_data = dic_cli[sel_cli_ed]
+            
+            upd_cli_nom = st.text_input("Nombre / Razón Social", value=cli_data["nombre"])
+            upd_cli_tel = st.text_input("WhatsApp", value=cli_data.get("contacto", ""))
+            idx_tipo = ["Minorista", "Mayorista"].index(cli_data.get("tipo", "Minorista")) if cli_data.get("tipo") in ["Minorista", "Mayorista"] else 0
+            upd_cli_tipo = st.selectbox("Categoría", ["Minorista", "Mayorista"], index=idx_tipo)
+            
+            if st.button("Guardar Cambios del Cliente"):
+                # Actualizamos la tabla clientes
+                supabase.table("clientes_ventas").update({
+                    "nombre": upd_cli_nom, "contacto": upd_cli_tel, "tipo": upd_cli_tipo
+                }).eq("id", cli_data["id"]).execute()
+                
+                # Si cambió el nombre, actualizamos el historial de ventas para que no se pierdan los registros
+                if upd_cli_nom != cli_data["nombre"]:
+                    supabase.table("ventas").update({"cliente_nombre": upd_cli_nom}).eq("cliente_nombre", cli_data["nombre"]).execute()
+                    
+                st.success("Cliente actualizado.")
+                st.rerun()
+                
+    with col_c2:
+        st.subheader("💸 Cargar Pago de Cliente")
+        res_vtas = supabase.table("ventas").select("*").execute()
+        if res_vtas.data:
+            df_v = pd.DataFrame(res_vtas.data)
+            df_v["Deuda"] = df_v["efectivo_a_cobrar"] - df_v["monto_abonado"]
+            
+            # Solo traemos las ventas que tienen deuda
+            df_deudoras = df_v[df_v["Deuda"] > 0]
+            if not df_deudoras.empty:
+                opciones_deuda = {f"Venta #{v['id']} - {v['cliente_nombre']} - Deuda: {formato_dolares(v['Deuda'])}": v for _, v in df_deudoras.iterrows()}
+                sel_v_deuda = st.selectbox("Seleccionar Cuenta Corriente a saldar:", list(opciones_deuda.keys()))
+                v_obj = opciones_deuda[sel_v_deuda]
+                
+                nuevo_cobro = st.number_input("Ingresar Pago Recibido (U$S)", min_value=0.0, max_value=float(v_obj["Deuda"]), step=10.0)
+                
+                if st.button("Registrar Pago Oficial", type="primary"):
+                    historial_p = v_obj.get("historial_pagos") or []
+                    historial_p.append({"fecha": str(datetime.date.today()), "monto": float(nuevo_cobro)})
+                    nuevo_monto_ab = float(v_obj["monto_abonado"]) + float(nuevo_cobro)
+                    
+                    supabase.table("ventas").update({
+                        "monto_abonado": nuevo_monto_ab,
+                        "historial_pagos": historial_p
+                    }).eq("id", v_obj["id"]).execute()
+                    
+                    st.success("¡Pago ingresado correctamente!")
+                    st.rerun()
+            else:
+                st.success("No hay deudas pendientes para cobrar.")
+
+    st.markdown("---")
+    st.write("### 📊 Historial General y Estado de Cuenta")
+    if res_vtas.data:
+        resumen_cli = df_v.groupby("cliente_nombre").agg({"efectivo_a_cobrar":"sum", "monto_abonado":"sum", "Deuda":"sum"}).reset_index()
         resumen_cli.columns = ["Cliente", "Total Comprado", "Total Pagado", "Deuda Pendiente"]
         
-        # Filtramos utilizando el NUEVO nombre de la columna para evitar el KeyError
-        deudores = resumen_cli[resumen_cli["Deuda Pendiente"] > 0].copy()
-        
-        if not deudores.empty:
-            st.error("🚨 **Clientes con saldo pendiente de pago:**")
-            deudores["Deuda Pendiente"] = deudores["Deuda Pendiente"].apply(formato_dolares)
-            st.dataframe(deudores[["Cliente", "Deuda Pendiente"]], hide_index=True, use_container_width=True)
-        else:
-            st.success("✨ No hay clientes con deudas pendientes.")
-            
-        st.markdown("---")
-        st.write("### Historial General de Clientes")
         resumen_cli["Total Comprado"] = resumen_cli["Total Comprado"].apply(formato_dolares)
         resumen_cli["Total Pagado"] = resumen_cli["Total Pagado"].apply(formato_dolares)
         resumen_cli["Deuda Pendiente"] = resumen_cli["Deuda Pendiente"].apply(formato_dolares)
         st.dataframe(resumen_cli, hide_index=True, use_container_width=True)
 
 # ----------------------------------------------------
-# 6. DIRECTORIO (BLOQUEADO)
+# 6. DIRECTORIO
 # ----------------------------------------------------
 with tab_directorio:
     if es_admin:
