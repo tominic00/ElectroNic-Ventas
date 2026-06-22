@@ -152,7 +152,7 @@ tab_stock, tab_venta, tab_pedidos, tab_historial, tab_finanzas, tab_clientes, ta
 ])
 
 # ----------------------------------------------------
-# 1. INVENTARIO (CON REMARCACIÓN MASIVA)
+# 1. INVENTARIO (CON REMARCACIÓN MASIVA Y TYPE CASTING)
 # ----------------------------------------------------
 with tab_stock:
     if es_admin:
@@ -176,14 +176,14 @@ with tab_stock:
             if st.button("📥 GUARDAR EN STOCK", type="primary", use_container_width=True):
                 if mod_modelo and mod_imei:
                     supabase.table("inventario").insert({
-                        "modelo": mod_modelo, "color": mod_color, "imei": mod_imei, "condicion": mod_condicion, "bateria": mod_bateria,
-                        "costo_equipo": cst_equipo, "costo_importacion": cst_carga, "costo_financiero": cst_finan,
-                        "precio_super_mayorista": pr_super, "precio_mayorista": pr_mayo, "precio_minorista": pr_mino, "estado": "Disponible"
+                        "modelo": str(mod_modelo), "color": str(mod_color), "imei": str(mod_imei), "condicion": str(mod_condicion), "bateria": str(mod_bateria),
+                        "costo_equipo": float(cst_equipo), "costo_importacion": float(cst_carga), "costo_financiero": float(cst_finan),
+                        "precio_super_mayorista": float(pr_super), "precio_mayorista": float(pr_mayo), "precio_minorista": float(pr_mino), "estado": "Disponible", "origen": "Importado"
                     }).execute()
                     st.success("✅ Guardado.")
                     st.rerun()
 
-    # --- NUEVO: SISTEMA DE REMARCACIÓN MASIVA ---
+    # --- SISTEMA DE REMARCACIÓN MASIVA ---
     res_all_stock = supabase.table("inventario").select("*").eq("estado", "Disponible").execute()
     if res_all_stock.data:
         df_all = pd.DataFrame(res_all_stock.data)
@@ -191,9 +191,7 @@ with tab_stock:
         if es_admin:
             with st.expander("⚡ ACTUALIZACIÓN MASIVA DE PRECIOS Y COSTOS (Remarcación Rápida)"):
                 tipo_remarca = st.radio("Método de remarcación:", ["Por Modelo de Celular", "Por Selección Manual de Equipos"], horizontal=True)
-                
                 equipos_a_modificar_ids = []
-                
                 if tipo_remarca == "Por Modelo de Celular":
                     modelo_masivo = st.selectbox("Seleccioná el modelo exacto a remarcar:", sorted(df_all["modelo"].unique().tolist()))
                     equipos_a_modificar_ids = df_all[df_all["modelo"] == modelo_masivo]["id"].tolist()
@@ -215,15 +213,15 @@ with tab_stock:
                     
                     if st.button("⚡ APLICAR CAMBIOS MASIVOS AHORA", type="primary", use_container_width=True):
                         upd_data = {}
-                        if new_costo_eq > 0: upd_data["costo_equipo"] = new_costo_eq
-                        if new_costo_cg > 0: upd_data["costo_importacion"] = new_costo_cg
-                        if new_p_super > 0: upd_data["precio_super_mayorista"] = new_p_super
-                        if new_p_mayo > 0: upd_data["precio_mayorista"] = new_p_mayo
-                        if new_p_mino > 0: upd_data["precio_minorista"] = new_p_mino
+                        if new_costo_eq > 0: upd_data["costo_equipo"] = float(new_costo_eq)
+                        if new_costo_cg > 0: upd_data["costo_importacion"] = float(new_costo_cg)
+                        if new_p_super > 0: upd_data["precio_super_mayorista"] = float(new_p_super)
+                        if new_p_mayo > 0: upd_data["precio_mayorista"] = float(new_p_mayo)
+                        if new_p_mino > 0: upd_data["precio_minorista"] = float(new_p_mino)
                         
                         if upd_data:
                             for eq_id in equipos_a_modificar_ids:
-                                supabase.table("inventario").update(upd_data).eq("id", eq_id).execute()
+                                supabase.table("inventario").update(upd_data).eq("id", int(eq_id)).execute()
                             st.success("🎉 ¡Remarcación masiva completada con éxito!")
                             st.rerun()
                         else: st.warning("No ingresaste ningún precio mayor a 0.")
@@ -247,7 +245,10 @@ with tab_stock:
                 ed_p_mino = ed_c2.number_input("Precio Público", value=float(eq["precio_minorista"]))
                 ed_p_super = ed_c2.number_input("Precio Super Mayo", value=float(eq["precio_super_mayorista"]))
                 if st.button("💾 Guardar Ficha Individual"):
-                    supabase.table("inventario").update({"modelo": ed_mod, "color": ed_col, "imei": ed_imei, "precio_minorista": ed_p_mino, "precio_super_mayorista": ed_p_super}).eq("id", id_ed).execute()
+                    supabase.table("inventario").update({
+                        "modelo": str(ed_mod), "color": str(ed_col), "imei": str(ed_imei), 
+                        "precio_minorista": float(ed_p_mino), "precio_super_mayorista": float(ed_p_super)
+                    }).eq("id", int(id_ed)).execute()
                     st.success("Sincronizado.")
                     st.rerun()
         else:
@@ -282,11 +283,11 @@ with tab_venta:
             c1, c2 = st.columns(2)
             with c1:
                 tipo_c = st.radio("Cliente:", ["Existente", "Nuevo"], horizontal=True)
-                cliente_final = st.selectbox("Seleccionar:", [c["nombre"] for c in clientes_list]) if tipo_c == "Existente" else st.text_input("Nombre Cliente:")
+                cliente_final = st.selectbox("Seleccionar:", [c["nombre"] for c in clientes_list]) if tipo_c == "Existente" and clientes_list else st.text_input("Nombre Cliente:")
                 sel_vendedor = st.selectbox("Vendedor:", [v["nombre"] for v in vendedores_list]) if vendedores_list else "Dueño"
                 desc_manual = st.number_input("Descuento Manual (U$S)", min_value=0.0)
                 desc_lote = len(eq_lote) * 5.0 if len(eq_lote) >= 10 else 0.0
-                desc_total = desc_manual + desc_lote
+                desc_total = float(desc_manual + desc_lote)
             with c2:
                 hay_canje = st.toggle("¿Hay Plan Canje?")
                 canje_mod = canje_col = canje_bat = canje_imei = ""
@@ -298,12 +299,12 @@ with tab_venta:
                     canje_imei = st.text_input("IMEI Usado")
                     val_canje = st.number_input("Cotización Usado (U$S)", min_value=0.0)
 
-            total_op = sub_mino - desc_total - val_canje
+            total_op = float(sub_mino - desc_total - val_canje)
             st.markdown("---")
             st.subheader(f"Total Neto Operación: {formato_dolares(total_op)}")
             
-            comision = (sub_mino - desc_total) - sub_super
-            ganancia = sub_super - cst_lote
+            comision = float((sub_mino - desc_total) - sub_super)
+            ganancia = float(sub_super - cst_lote)
             
             b1, b2, b3 = st.columns(3)
             with b1:
@@ -312,38 +313,52 @@ with tab_venta:
                     st.download_button("Descargar Presupuesto", pdf, f"Presupuesto_{cliente_final}.pdf", "application/pdf")
             
             with b2:
-                # --- GUARDADO INTELIGENTE DE PEDIDOS (CON FINANZAS) ---
                 if st.button("📦 RESERVAR (CREAR PEDIDO)", type="secondary", use_container_width=True):
-                    ids_lote = [int(e['id']) for e in eq_lote]
-                    nombres_lote = ", ".join([f"{e['modelo']} {e.get('color','')}" for e in eq_lote])
-                    
-                    for eq_id in ids_lote:
-                        supabase.table("inventario").update({"estado": "Reservado"}).eq("id", eq_id).execute()
-                    
-                    supabase.table("pedidos").insert({
-                        "cliente_nombre": cliente_final, "vendedor_nombre": sel_vendedor,
-                        "equipos_reservados": nombres_lote, "ids_equipos": ids_lote, "total_pedido": total_op,
-                        "comision_vendedor": comision, "ganancia_neta_local": ganancia, "estado": "Pendiente"
-                    }).execute()
-                    st.success("🎉 ¡Pedido registrado con éxito! El stock quedó congelado.")
-                    st.rerun()
+                    if cliente_final and sel_vendedor:
+                        ids_lote = [int(e['id']) for e in eq_lote]
+                        nombres_lote = ", ".join([f"{e['modelo']} {e.get('color','')}" for e in eq_lote])
+                        
+                        for eq_id in ids_lote:
+                            supabase.table("inventario").update({"estado": "Reservado"}).eq("id", eq_id).execute()
+                        
+                        # Conversión total a python types para evitar el TypeError
+                        supabase.table("pedidos").insert({
+                            "cliente_nombre": str(cliente_final), "vendedor_nombre": str(sel_vendedor),
+                            "equipos_reservados": str(nombres_lote), "ids_equipos": ids_lote, 
+                            "total_pedido": float(total_op), "comision_vendedor": float(comision), 
+                            "ganancia_neta_local": float(ganancia), "estado": "Pendiente"
+                        }).execute()
+                        st.success("🎉 ¡Pedido registrado con éxito! El stock quedó congelado.")
+                        st.rerun()
+                    else: st.warning("Por favor seleccioná cliente y vendedor.")
 
             with b3:
                 if st.button("🚀 CERRAR VENTA DIRECTA", type="primary", use_container_width=True):
-                    for e in eq_lote:
-                        supabase.table("inventario").update({"estado": "Vendido"}).eq("id", e['id']).execute()
-                    if hay_canje and canje_mod:
-                        supabase.table("inventario").insert({"modelo": canje_mod, "color": canje_col, "imei": canje_imei, "condicion": "Usado", "bateria": canje_bat, "costo_equipo": val_canje, "precio_minorista": val_canje+150, "estado": "Disponible", "origen": "Canje"}).execute()
-                    
-                    supabase.table("ventas").insert({
-                        "cliente_nombre": cliente_final, "vendedor_nombre": sel_vendedor, "equipo_vendido": ", ".join([f"{e['modelo']} {e.get('color','')}" for e in eq_lote]),
-                        "precio_final_venta": sub_mino - desc_total, "descuento_aplicado": desc_total, "equipo_recibido_canje": canje_mod or "Ninguno", "cotizacion_canje": val_canje, "monto_abonado": total_op, "comision_vendedor": comision, "ganancia_neta_local": ganancia, "comision_pagada": False
-                    }).execute()
-                    st.success("🎉 Venta confirmada.")
-                    st.rerun()
+                    if cliente_final and sel_vendedor:
+                        for e in eq_lote:
+                            supabase.table("inventario").update({"estado": "Vendido"}).eq("id", int(e['id'])).execute()
+                        if hay_canje and canje_mod:
+                            supabase.table("inventario").insert({
+                                "modelo": str(canje_mod), "color": str(canje_col), "imei": str(canje_imei), 
+                                "condicion": "Usado", "bateria": str(canje_bat), "costo_equipo": float(val_canje), 
+                                "precio_minorista": float(val_canje+150), "estado": "Disponible", "origen": "Canje"
+                            }).execute()
+                        
+                        supabase.table("ventas").insert({
+                            "cliente_nombre": str(cliente_final), "vendedor_nombre": str(sel_vendedor), 
+                            "equipo_vendido": str(", ".join([f"{e['modelo']} {e.get('color','')}" for e in eq_lote])),
+                            "precio_final_venta": float(sub_mino - desc_total), "descuento_aplicado": float(desc_total), 
+                            "equipo_recibido_canje": str(canje_mod) if hay_canje else "Ninguno", "cotizacion_canje": float(val_canje), 
+                            "monto_abonado": float(total_op), "comision_vendedor": float(comision), 
+                            "ganancia_neta_local": float(ganancia), "comision_pagada": False,
+                            "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(total_op)}] if total_op > 0 else []
+                        }).execute()
+                        st.success("🎉 Venta confirmada.")
+                        st.rerun()
+                    else: st.warning("Por favor seleccioná cliente y vendedor.")
 
 # ----------------------------------------------------
-# 3. NUEVA PESTAÑA: GESTIÓN DE PEDIDOS ACTIVOS
+# 3. GESTIÓN DE PEDIDOS ACTIVOS
 # ----------------------------------------------------
 with tab_pedidos:
     st.header("📋 Panel de Pedidos y Reservas Pendientes")
@@ -353,7 +368,6 @@ with tab_pedidos:
     if res_p_activos.data:
         df_p = pd.DataFrame(res_p_activos.data)
         
-        # Mostramos los pedidos de forma amigable
         df_p_show = df_p[["id", "fecha_pedido", "cliente_nombre", "equipos_reservados", "total_pedido", "vendedor_nombre"]].copy()
         df_p_show["total_pedido"] = df_p_show["total_pedido"].apply(formato_dolares)
         df_p_show.columns = ["N° Pedido", "Fecha Reserva", "Cliente", "iPhones Reservados", "Total a Cobrar", "Vendedor"]
@@ -367,25 +381,24 @@ with tab_pedidos:
             p_sel = df_p[df_p["id"] == id_p_facturar].iloc[0]
             
             if st.button("🚀 CONFIRMAR ENTREGA Y FACTURAR VENTA", type="primary", use_container_width=True):
-                # 1. Cambiamos el stock de Reservado a Vendido de manera definitiva
                 for eq_id in p_sel["ids_equipos"]:
                     supabase.table("inventario").update({"estado": "Vendido"}).eq("id", int(eq_id)).execute()
                 
-                # 2. Pasamos el pedido a Completado para que salga de la libreta de pendientes
                 supabase.table("pedidos").update({"estado": "Completado"}).eq("id", int(id_p_facturar)).execute()
                 
-                # 3. Registramos la venta en el historial oficial arrastrando las comisiones y ganancias originales
+                # Conversión explícita post-pandas para evitar el TypeError Numpy
                 supabase.table("ventas").insert({
-                    "cliente_nombre": p_sel["cliente_nombre"],
-                    "vendedor_nombre": p_sel["vendedor_nombre"],
+                    "cliente_nombre": str(p_sel["cliente_nombre"]),
+                    "vendedor_nombre": str(p_sel["vendedor_nombre"]),
                     "equipo_vendido": f"DESPACHO PEDIDO: {p_sel['equipos_reservados']}",
-                    "precio_final_venta": p_sel["total_pedido"],
-                    "monto_abonado": p_sel["total_pedido"],
-                    "comision_vendedor": p_sel["comision_vendedor"],
-                    "ganancia_neta_local": p_sel["ganancia_neta_local"],
+                    "precio_final_venta": float(p_sel["total_pedido"]),
+                    "monto_abonado": float(p_sel["total_pedido"]),
+                    "comision_vendedor": float(p_sel.get("comision_vendedor", 0.0)),
+                    "ganancia_neta_local": float(p_sel.get("ganancia_neta_local", 0.0)),
                     "comision_pagada": False,
                     "equipo_recibido_canje": "Ninguno",
-                    "cotizacion_canje": 0
+                    "cotizacion_canje": 0.0,
+                    "historial_pagos": [{"fecha": str(datetime.date.today()), "monto": float(p_sel["total_pedido"])}]
                 }).execute()
                 
                 st.success(f"🎉 ¡Pedido N° {id_p_facturar} entregado con éxito! Se impactaron las comisiones correspondientes.")
@@ -430,7 +443,7 @@ with tab_finanzas:
                 v_liq = st.selectbox("Sueldo a liquidar:", liq["vendedor_nombre"].tolist())
                 if st.button("Marcar Comisiones como Pagadas"):
                     ids = df_pendientes[df_pendientes["vendedor_nombre"] == v_liq]["id"].tolist()
-                    for idx in ids: supabase.table("ventas").update({"comision_pagada": True, "fecha_pago_comision": str(datetime.date.today())}).eq("id", idx).execute()
+                    for idx in ids: supabase.table("ventas").update({"comision_pagada": True, "fecha_pago_comision": str(datetime.date.today())}).eq("id", int(idx)).execute()
                     st.success("Pagado.")
                     st.rerun()
     else: st.error("🔒 Área exclusiva de administración.")
@@ -448,7 +461,8 @@ with tab_clientes:
         c_cob1, c_cob2 = st.columns(2)
         with c_cob1:
             st.subheader("✏️ Modificar Ficha")
-            # Panel simple de edición de clientes...
+            # Panel simple
+            st.info("Para editar un cliente diríjase a la base de clientes oficial.")
         with c_cob2:
             st.subheader("💸 Cargar Cobro")
             df_deudoras = df_c[df_c["Deuda"] > 0]
@@ -460,7 +474,7 @@ with tab_clientes:
                 if st.button("Registrar Cobro"):
                     h_p = v_obj.get("historial_pagos") or []
                     h_p.append({"fecha": str(datetime.date.today()), "monto": float(n_cobro)})
-                    supabase.table("ventas").update({"monto_abonado": float(v_obj["monto_abonado"])+float(n_cobro), "historial_pagos": h_p}).eq("id", v_obj["id"]).execute()
+                    supabase.table("ventas").update({"monto_abonado": float(v_obj["monto_abonado"])+float(n_cobro), "historial_pagos": h_p}).eq("id", int(v_obj["id"])).execute()
                     st.success("Cobrado.")
                     st.rerun()
                     
@@ -477,7 +491,7 @@ with tab_directorio:
         st.header("👥 Gestión de Vendedores")
         n_v = st.text_input("Nombre completo:")
         if st.button("Dar de Alta"):
-            supabase.table("vendedores").insert({"nombre": n_v}).execute()
+            supabase.table("vendedores").insert({"nombre": str(n_v)}).execute()
             st.success("Alta registrada.")
             st.rerun()
     else: st.error("🔒 Privado.")
